@@ -5,6 +5,7 @@ import click
 import yaml
 import sys
 from chebifier.ensemble.base_ensemble import BaseEnsemble
+from chebifier.ensemble.weighted_majority_ensemble import WMVwithPPVNPVEnsemble, WMVwithF1Ensemble
 
 
 @click.group()
@@ -12,13 +13,19 @@ def cli():
     """Command line interface for Chebifier."""
     pass
 
+ENSEMBLES = {
+    "mv": BaseEnsemble,
+    "wmv-ppvnpv": WMVwithPPVNPVEnsemble,
+    "wmv-f1": WMVwithF1Ensemble
+}
 
 @cli.command()
 @click.argument('config_file', type=click.Path(exists=True))
 @click.option('--smiles', '-s', multiple=True, help='SMILES strings to predict')
 @click.option('--smiles-file', '-f', type=click.Path(exists=True), help='File containing SMILES strings (one per line)')
 @click.option('--output', '-o', type=click.Path(), help='Output file to save predictions (optional)')
-def predict(config_file, smiles, smiles_file, output):
+@click.option('--ensemble-type', '-e', type=click.Choice(ENSEMBLES.keys()), default='mv', help='Type of ensemble to use (default: Majority Voting)')
+def predict(config_file, smiles, smiles_file, output, ensemble_type):
     """Predict ChEBI classes for SMILES strings using an ensemble model.
     
     CONFIG_FILE is the path to a YAML configuration file for the ensemble model.
@@ -28,7 +35,7 @@ def predict(config_file, smiles, smiles_file, output):
         config = yaml.safe_load(f)
     
     # Instantiate ensemble model
-    ensemble = BaseEnsemble(config)
+    ensemble = ENSEMBLES[ensemble_type](config)
     
     # Collect SMILES strings from arguments and/or file
     smiles_list = list(smiles)

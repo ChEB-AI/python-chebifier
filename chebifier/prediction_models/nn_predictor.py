@@ -70,7 +70,7 @@ class NNPredictor(BasePredictor):
                 result = self.calculate_results(batch)
                 if isinstance(result, dict) and "logits" in result:
                     result = result["logits"]
-                results += result.cpu().detach().tolist()
+                results += torch.sigmoid(result).cpu().detach().tolist()
             results = np.stack(results, axis=0)
             preds = [{self.target_labels[j]: p for j, p in enumerate(results[index_map[i]])}
                               if i not in could_not_parse else None for i in range(len(smiles_list))]
