@@ -19,6 +19,7 @@ class BaseEnsemble(ABC):
 
     def __init__(self, model_configs: dict):
         self.models = []
+        self.positive_prediction_threshold = 0.5
         for model_name, model_config in model_configs.items():
             model_cls = MODEL_TYPES[model_config["type"]]
             model_instance = model_cls(**model_config)
@@ -26,26 +27,29 @@ class BaseEnsemble(ABC):
             self.models.append(model_instance)
 
     def gather_predictions(self, smiles_list):
+        # get predictions from all models for the SMILES list
+        # order them by alphabetically by label class
         model_predictions = []
         predicted_classes = set()
         for model in self.models:
             model_predictions.append(model.predict_smiles_list(smiles_list))
-            for predicted_labels_for_smiles in model_predictions[-1]:
-                if predicted_labels_for_smiles is not None:
-                    for cls in predicted_labels_for_smiles:
+            for logits_for_smiles in model_predictions[-1]:
+                if logits_for_smiles is not None:
+                    for cls in logits_for_smiles:
                         predicted_classes.add(cls)
         print(f"Sorting predictions...")
         predicted_classes = sorted(list(predicted_classes))
         predicted_classes = {cls: i for i, cls in enumerate(predicted_classes)}
-        ordered_predictions = torch.zeros(len(smiles_list), len(predicted_classes), len(self.models)) * torch.nan
+        ordered_logits = torch.zeros(len(smiles_list), len(predicted_classes), len(self.models)) * torch.nan
         for i, model_prediction in enumerate(model_predictions):
-            for j, predicted_labels_for_smiles in tqdm.tqdm(enumerate(model_prediction),
+            for j, logits_for_smiles in tqdm.tqdm(enumerate(model_prediction),
                                                  total=len(model_prediction),
                                                  desc=f"Sorting predictions for {self.models[i].model_name}"):
-                if predicted_labels_for_smiles is not None:
-                    for cls in predicted_labels_for_smiles:
-                        ordered_predictions[j, predicted_classes[cls], i] = predicted_labels_for_smiles[cls]
-        return ordered_predictions, predicted_classes
+                if logits_for_smiles is not None:
+                    for cls in logits_for_smiles:
+                        ordered_logits[j, predicted_classes[cls], i] = logits_for_smiles[cls]
+
+        return ordered_logits, predicted_classes
 
 
     def consolidate_predictions(self, predictions, predicted_classes, classwise_weights, **kwargs):
@@ -70,6 +74,8 @@ class BaseEnsemble(ABC):
         positive_mask = (predictions > 0.5) & valid_predictions
         negative_mask = (predictions < 0.5) & valid_predictions
 
+        confidence = 2 * torch.abs(predictions.nan_to_num() - self.positive_prediction_threshold)
+
         # Extract positive and negative weights
         pos_weights = classwise_weights[0]  # Shape: (num_classes, num_models)
         neg_weights = classwise_weights[1]  # Shape: (num_classes, num_models)
@@ -77,8 +83,8 @@ class BaseEnsemble(ABC):
         # Calculate weighted predictions using broadcasting
         # predictions shape: (num_smiles, num_classes, num_models)
         # weights shape: (num_classes, num_models)
-        positive_weighted = positive_mask.float() * (predictions.nan_to_num() - 0.5) * pos_weights.unsqueeze(0)
-        negative_weighted = negative_mask.float() * (0.5 - predictions.nan_to_num()) * neg_weights.unsqueeze(0)
+        positive_weighted = positive_mask.float() * confidence * pos_weights.unsqueeze(0)
+        negative_weighted = negative_mask.float() * confidence * neg_weights.unsqueeze(0)
 
         # Sum over models dimension
         positive_sum = positive_weighted.sum(dim=2)  # Shape: (num_smiles, num_classes)
@@ -96,18 +102,6 @@ class BaseEnsemble(ABC):
 
         return result
 
-    def normalize_smiles_list(self, smiles_list):
-        new = []
-        print(f"Normalizing SMILES strings...")
-        for smiles in tqdm.tqdm(smiles_list):
-            try:
-                mol = Chem.MolFromSmiles(smiles)
-                canonical_smiles = Chem.MolToSmiles(mol)
-            except Exception as e:
-                print(f"Failed to parse SMILES '{smiles}': {e}")
-                canonical_smiles = None
-            new.append(canonical_smiles)
-        return new
 
     def calculate_classwise_weights(self, predicted_classes):
         """No weights, simple majority voting"""
@@ -120,8 +114,7 @@ class BaseEnsemble(ABC):
         preds_file = f"predictions_by_model_{'_'.join(model.model_name for model in self.models)}.pt"
         predicted_classes_file = f"predicted_classes_{'_'.join(model.model_name for model in self.models)}.txt"
         if not load_preds_if_possible or not os.path.isfile(preds_file):
-            #smiles_list = self.normalize_smiles_list(smiles_list)
-            ordered_predictions, predicted_classes = self.gather_predictions(smiles_list)
+            ordered_predictions = predicted_classes = self.gather_predictions(smiles_list)
             # save predictions
             torch.save(ordered_predictions, preds_file)
             with open(predicted_classes_file, "w") as f:
