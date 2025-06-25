@@ -39,7 +39,7 @@ class BaseEnsemble(ABC):
                         predicted_classes.add(cls)
         print(f"Sorting predictions...")
         predicted_classes = sorted(list(predicted_classes))
-        predicted_classes = {cls: i for i, cls in enumerate(predicted_classes)}
+        predicted_classes_dict = {cls: i for i, cls in enumerate(predicted_classes)}
         ordered_logits = torch.zeros(len(smiles_list), len(predicted_classes), len(self.models)) * torch.nan
         for i, model_prediction in enumerate(model_predictions):
             for j, logits_for_smiles in tqdm.tqdm(enumerate(model_prediction),
@@ -47,7 +47,7 @@ class BaseEnsemble(ABC):
                                                  desc=f"Sorting predictions for {self.models[i].model_name}"):
                 if logits_for_smiles is not None:
                     for cls in logits_for_smiles:
-                        ordered_logits[j, predicted_classes[cls], i] = logits_for_smiles[cls]
+                        ordered_logits[j, predicted_classes_dict[cls], i] = logits_for_smiles[cls]
 
         return ordered_logits, predicted_classes
 
@@ -114,7 +114,7 @@ class BaseEnsemble(ABC):
         preds_file = f"predictions_by_model_{'_'.join(model.model_name for model in self.models)}.pt"
         predicted_classes_file = f"predicted_classes_{'_'.join(model.model_name for model in self.models)}.txt"
         if not load_preds_if_possible or not os.path.isfile(preds_file):
-            ordered_predictions = predicted_classes = self.gather_predictions(smiles_list)
+            ordered_predictions, predicted_classes = self.gather_predictions(smiles_list)
             # save predictions
             torch.save(ordered_predictions, preds_file)
             with open(predicted_classes_file, "w") as f:
