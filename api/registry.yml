@@ -1,0 +1,23 @@
+electra:
+  hugging_face:
+    repo_id: aditya0by0/python-chebifier
+    subfolder: electra
+    files:
+      ckpt: electra.ckpt
+      labels: classes.txt
+  repo_url: https://github.com/ChEB-AI/python-chebai
+  wrapper: chebifier.prediction_models.ElectraPredictor
+
+resgated:
+  hugging_face:
+    repo_id: aditya0by0/python-chebifier
+    subfolder: resgated
+    files:
+      ckpt: resgated.ckpt
+      labels: classes.txt
+  repo_url: https://github.com/ChEB-AI/python-chebai-graph
+  wrapper: chebifier.prediction_models.ResGatedPredictor
+
+chemlog:
+  repo_url: https://github.com/sfluegel05/chemlog-peptides
+  wrapper: chebifier.prediction_models.ChemLogPredictor
