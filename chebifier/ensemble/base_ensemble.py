@@ -4,10 +4,12 @@ from abc import ABC
 import torch
 import tqdm
 
-from chebifier.prediction_models.base_predictor import BasePredictor
-from chebifier.prediction_models.chemlog_predictor import ChemLogPredictor
-from chebifier.prediction_models.electra_predictor import ElectraPredictor
-from chebifier.prediction_models.gnn_predictor import ResGatedPredictor
+from chebifier.prediction_models import (
+    BasePredictor,
+    ChemLogPredictor,
+    ElectraPredictor,
+    ResGatedPredictor,
+)
 
 MODEL_TYPES = {
     "electra": ElectraPredictor,
