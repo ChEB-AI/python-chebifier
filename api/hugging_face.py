@@ -1,34 +1,48 @@
-import shutil
+"""
+Hugging Face Api:
+    - For Windows Users check: https://huggingface.co/docs/huggingface_hub/en/guides/manage-cache#limitations
+
+    Refer for Hugging Face Hub caching and versioning documentation:
+        https://huggingface.co/docs/huggingface_hub/en/guides/download
+        https://huggingface.co/docs/huggingface_hub/en/guides/manage-cache
+"""
+
 from pathlib import Path
 
 from huggingface_hub import hf_hub_download
 
 
-def download_model_files(model_config: dict, download_path: Path):
+def download_model_files(
+    model_config: dict[str, str | dict[str, str]],
+) -> dict[str, Path]:
+    """
+    Downloads specified model files from a Hugging Face Hub repository using hf_hub_download.
+
+    Hugging Face Hub provides internal caching and versioning, so file management or duplication
+    checks are not required.
+
+    Args:
+        model_config (Dict[str, str | Dict[str, str]]): A dictionary containing:
+            - 'repo_id' (str): The Hugging Face repository ID (e.g., 'username/modelname').
+            - 'subfolder' (str): The subfolder within the repo where the files are located.
+            - 'files' (Dict[str, str]): A mapping from file type (e.g., 'ckpt', 'labels') to
+              actual file names (e.g., 'electra.ckpt', 'classes.txt').
+
+    Returns:
+        Dict[str, Path]: A dictionary mapping each file type to the local Path of the downloaded file.
+    """
     repo_id = model_config["repo_id"]
     subfolder = model_config["subfolder"]
     filenames = model_config["files"]
 
-    local_paths = {}
+    local_paths: dict[str, Path] = {}
     for file_type, filename in filenames.items():
-        local_file_path = download_path / filename
-        if local_file_path.exists():
-            print(f"File already exists: {local_file_path}")
-            local_paths[file_type] = local_file_path
-            continue
-
-        print(
-            f"Downloading file from: https://huggingface.co/{repo_id}/{subfolder}/{filename}"
-        )
-        downloaded_file = hf_hub_download(
+        downloaded_file_path = hf_hub_download(
             repo_id=repo_id,
             filename=filename,
             subfolder=subfolder,
         )
-
-        local_file_path.parent.mkdir(parents=True, exist_ok=True)
-        shutil.move(downloaded_file, local_file_path)
-        print(f"Saved to: {local_file_path}")
-        local_paths[file_type] = local_file_path
+        local_paths[file_type] = Path(downloaded_file_path)
+        print(f"\t Using file `{filename}` from: {downloaded_file_path}")
 
     return local_paths

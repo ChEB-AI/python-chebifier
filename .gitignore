@@ -176,6 +176,4 @@ lightning_logs
 logs
 .isort.cfg
 /.vscode
-/api/api_models
-/api/.api_models
 /api/.cloned_repos

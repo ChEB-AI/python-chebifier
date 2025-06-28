@@ -66,10 +66,8 @@ def predict(smiles, smiles_file, output, model_type):
     current_dir = Path(__file__).resolve().parent
 
     if "hugging_face" in model_config:
-        local_file_path = download_model_files(
-            model_config["hugging_face"],
-            current_dir / ".api_models" / model_type,
-        )
+        print(f"For model type `{model_type}` following files are used:")
+        local_file_path = download_model_files(model_config["hugging_face"])
         predictor_kwargs["ckpt_path"] = local_file_path["ckpt"]
         predictor_kwargs["target_labels_path"] = local_file_path["labels"]
 
