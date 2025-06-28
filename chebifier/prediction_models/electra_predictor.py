@@ -1,6 +1,7 @@
-from chebifier.prediction_models.nn_predictor import NNPredictor
 from chebai.models.electra import Electra
 from chebai.preprocessing.reader import ChemDataReader
+
+from chebifier.prediction_models.nn_predictor import NNPredictor
 
 
 class ElectraPredictor(NNPredictor):
@@ -13,10 +14,10 @@ class ElectraPredictor(NNPredictor):
         model = Electra.load_from_checkpoint(
             ckpt_path,
             map_location=self.device,
-            criterion=None, strict=False,
-            metrics=dict(train=dict(), test=dict(), validation=dict()), pretrained_checkpoint=None
+            criterion=None,
+            strict=False,
+            metrics=dict(train=dict(), test=dict(), validation=dict()),
+            pretrained_checkpoint=None,
         )
         model.eval()
         return model
-
-

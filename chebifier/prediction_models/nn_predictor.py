@@ -1,24 +1,35 @@
-import tqdm
-
-from chebifier.prediction_models.base_predictor import BasePredictor
-from rdkit import Chem
 import numpy as np
 import torch
+import tqdm
+from rdkit import Chem
+
+from chebifier.prediction_models.base_predictor import BasePredictor
+
 
 class NNPredictor(BasePredictor):
 
-    def __init__(self, model_name: str, ckpt_path: str, reader_cls, target_labels_path: str, **kwargs):
+    def __init__(
+        self,
+        model_name: str,
+        ckpt_path: str,
+        reader_cls,
+        target_labels_path: str,
+        **kwargs,
+    ):
         super().__init__(model_name, **kwargs)
         self.reader_cls = reader_cls
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = self.init_model(ckpt_path=ckpt_path)
-        self.target_labels = [line.strip() for line in open(target_labels_path, encoding="utf-8")]
+        self.target_labels = [
+            line.strip() for line in open(target_labels_path, encoding="utf-8")
+        ]
         self.batch_size = kwargs.get("batch_size", 1)
 
-
     def init_model(self, ckpt_path: str, **kwargs):
-        raise NotImplementedError("Model initialization must be implemented in subclasses.")
+        raise NotImplementedError(
+            "Model initialization must be implemented in subclasses."
+        )
 
     def calculate_results(self, batch):
         collator = self.reader_cls.COLLATOR()
@@ -66,14 +77,27 @@ class NNPredictor(BasePredictor):
                     token_dicts.append(d)
         results = []
         if token_dicts:
-            for batch in tqdm.tqdm(self.batchify(token_dicts), desc=f"{self.model_name}", total=len(token_dicts)//self.batch_size):
+            for batch in tqdm.tqdm(
+                self.batchify(token_dicts),
+                desc=f"{self.model_name}",
+                total=len(token_dicts) // self.batch_size,
+            ):
                 result = self.calculate_results(batch)
                 if isinstance(result, dict) and "logits" in result:
                     result = result["logits"]
                 results += torch.sigmoid(result).cpu().detach().tolist()
             results = np.stack(results, axis=0)
-            preds = [{self.target_labels[j]: p for j, p in enumerate(results[index_map[i]])}
-                              if i not in could_not_parse else None for i in range(len(smiles_list))]
+            preds = [
+                (
+                    {
+                        self.target_labels[j]: p
+                        for j, p in enumerate(results[index_map[i]])
+                    }
+                    if i not in could_not_parse
+                    else None
+                )
+                for i in range(len(smiles_list))
+            ]
             return preds
         else:
             return [None for _ in smiles_list]
