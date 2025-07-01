@@ -9,7 +9,6 @@ from chebifier.prediction_models.nn_predictor import NNPredictor
 
 
 class ResGatedPredictor(NNPredictor):
-
     def __init__(self, model_name: str, ckpt_path: str, molecular_properties, **kwargs):
         super().__init__(
             model_name, ckpt_path, reader_cls=GraphPropertyReader, **kwargs
@@ -41,16 +40,6 @@ class ResGatedPredictor(NNPredictor):
             strict=False,
             metrics=dict(train=dict(), test=dict(), validation=dict()),
             pretrained_checkpoint=None,
-            config={
-                "in_length": 256,
-                "hidden_length": 512,
-                "dropout_rate": 0.1,
-                "n_conv_layers": 3,
-                "n_linear_layers": 3,
-                "n_atom_properties": 158,
-                "n_bond_properties": 7,
-                "n_molecule_properties": 200,
-            },
         )
         model.eval()
         return model
