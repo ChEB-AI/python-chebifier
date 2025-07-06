@@ -1,18 +1,17 @@
-import importlib
 from pathlib import Path
 
 import click
 import yaml
 
-from chebifier.prediction_models.base_predictor import BasePredictor
+from chebifier.model_registry import ENSEMBLES, MODEL_TYPES
 
+from .check_env import check_package_installed, get_current_environment
 from .hugging_face import download_model_files
-from .setup_env import SetupEnvAndPackage
 
-yaml_path = Path("api/registry.yml")
+yaml_path = Path("api/api_registry.yml")
 if yaml_path.exists():
     with yaml_path.open("r") as f:
-        model_registry = yaml.safe_load(f)
+        api_registry = yaml.safe_load(f)
 else:
     raise FileNotFoundError(f"{yaml_path} not found.")
 
@@ -40,7 +39,7 @@ def cli():
 @click.option(
     "--model-type",
     "-m",
-    type=click.Choice(model_registry.keys()),
+    type=click.Choice(api_registry.keys()),
     default="mv",
     help="Type of model to use",
 )
@@ -60,29 +59,39 @@ def predict(smiles, smiles_file, output, model_type):
         click.echo("No SMILES strings provided. Use --smiles or --smiles-file options.")
         return
 
-    model_config = model_registry[model_type]
-    predictor_kwargs = {"model_name": model_type}
+    print("Current working environment is:", get_current_environment())
 
-    current_dir = Path(__file__).resolve().parent
+    def get_individual_model(model_config):
+        predictor_kwargs = {}
+        if "hugging_face" in model_config:
+            predictor_kwargs = download_model_files(model_config["hugging_face"])
+        check_package_installed(model_config["package_name"])
+        return predictor_kwargs
 
-    if "hugging_face" in model_config:
-        print(f"For model type `{model_type}` following files are used:")
-        local_file_path = download_model_files(model_config["hugging_face"])
-        predictor_kwargs["ckpt_path"] = local_file_path["ckpt"]
-        predictor_kwargs["target_labels_path"] = local_file_path["labels"]
+    if model_type in MODEL_TYPES:
+        print(f"Predictor for Single/Individual Model: {model_type}")
+        model_config = api_registry[model_type]
+        predictor_kwargs = get_individual_model(model_config)
+        predictor_kwargs["model_name"] = model_type
+        model_instance = MODEL_TYPES[model_type](**predictor_kwargs)
 
-    SetupEnvAndPackage().setup(
-        repo_url=model_config["repo_url"],
-        clone_dir=current_dir / ".cloned_repos",
-        venv_dir=current_dir,
-    )
+    elif model_type in ENSEMBLES:
+        print(f"Predictor for Ensemble Model: {model_type}")
+        ensemble_config = {}
+        for i, en_comp in enumerate(api_registry[model_type]["ensemble_of"]):
+            assert en_comp in MODEL_TYPES
+            print(f"For ensemble component {en_comp}")
+            predictor_kwargs = get_individual_model(api_registry[en_comp])
+            model_key = f"model_{i + 1}"
+            ensemble_config[model_key] = {
+                "type": en_comp,
+                "model_name": f"{en_comp}_{model_key}",
+                **predictor_kwargs,
+            }
+        model_instance = ENSEMBLES[model_type](ensemble_config)
 
-    model_cls_path = model_config["wrapper"]
-    module_path, class_name = model_cls_path.rsplit(".", 1)
-    module = importlib.import_module(module_path)
-    model_cls: type = getattr(module, class_name)
-    model_instance = model_cls(**predictor_kwargs)
-    assert isinstance(model_instance, BasePredictor)
+    else:
+        raise ValueError("")
 
     # Make predictions
     predictions = model_instance.predict_smiles_list(smiles_list)

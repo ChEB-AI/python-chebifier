@@ -4,22 +4,14 @@ from abc import ABC
 import torch
 import tqdm
 
-from chebifier.prediction_models import (
-    BasePredictor,
-    ChemLogPredictor,
-    ElectraPredictor,
-    ResGatedPredictor,
-)
-
-MODEL_TYPES = {
-    "electra": ElectraPredictor,
-    "resgated": ResGatedPredictor,
-    "chemlog": ChemLogPredictor,
-}
+from chebifier.prediction_models import BasePredictor
 
 
 class BaseEnsemble(ABC):
     def __init__(self, model_configs: dict):
+        # Deferred Import: To avoid circular import error
+        from chebifier.model_registry import MODEL_TYPES
+
         self.models = []
         self.positive_prediction_threshold = 0.5
         for model_name, model_config in model_configs.items():

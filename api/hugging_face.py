@@ -45,4 +45,7 @@ def download_model_files(
         local_paths[file_type] = Path(downloaded_file_path)
         print(f"\t Using file `{filename}` from: {downloaded_file_path}")
 
-    return local_paths
+    return {
+        "ckpt_path": local_paths["ckpt"],
+        "target_labels_path": local_paths["labels"],
+    }

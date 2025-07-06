@@ -1,24 +1,13 @@
 import click
 import yaml
 
-from chebifier.ensemble.base_ensemble import BaseEnsemble
-from chebifier.ensemble.weighted_majority_ensemble import (
-    WMVwithF1Ensemble,
-    WMVwithPPVNPVEnsemble,
-)
+from .model_registry import ENSEMBLES
 
 
 @click.group()
 def cli():
     """Command line interface for Chebifier."""
     pass
-
-
-ENSEMBLES = {
-    "mv": BaseEnsemble,
-    "wmv-ppvnpv": WMVwithPPVNPVEnsemble,
-    "wmv-f1": WMVwithF1Ensemble,
-}
 
 
 @cli.command()
