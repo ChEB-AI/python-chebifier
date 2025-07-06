@@ -3,13 +3,12 @@ from abc import ABC
 
 
 class BasePredictor(ABC):
-
     def __init__(
         self,
         model_name: str,
         model_weight: int = 1,
         classwise_weights_path: str = None,
-        **kwargs
+        **kwargs,
     ):
         self.model_name = model_name
         self.model_weight = model_weight
