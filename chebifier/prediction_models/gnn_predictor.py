@@ -32,7 +32,7 @@ class ResGatedPredictor(NNPredictor):
 
     def init_model(self, ckpt_path: str, **kwargs) -> ResGatedGraphConvNetGraphPred:
         model = ResGatedGraphConvNetGraphPred.load_from_checkpoint(
-            ckpt_path, map_location=torch.device(self.device), criterion=None, strict=False,
+            ckpt_path, map_location=torch.device(self.device), criterion=None, strict=False, input_dim=128,
             metrics=dict(train=dict(), test=dict(), validation=dict()), pretrained_checkpoint=None,
             config={"in_length": 256, "hidden_length": 512, "dropout_rate": 0.1, "n_conv_layers": 3,
                     "n_linear_layers": 3, "n_atom_properties": 158, "n_bond_properties": 7,

@@ -22,7 +22,7 @@ class BaseEnsemble(ABC):
         self.positive_prediction_threshold = 0.5
         for model_name, model_config in model_configs.items():
             model_cls = MODEL_TYPES[model_config["type"]]
-            model_instance = model_cls(**model_config)
+            model_instance = model_cls(model_name, **model_config)
             assert isinstance(model_instance, BasePredictor)
             self.models.append(model_instance)
 
@@ -71,8 +71,8 @@ class BaseEnsemble(ABC):
         has_valid_predictions = valid_counts > 0
 
         # Calculate positive and negative predictions for all classes at once
-        positive_mask = (predictions > 0.5) & valid_predictions
-        negative_mask = (predictions < 0.5) & valid_predictions
+        positive_mask = (predictions > self.positive_prediction_threshold) & valid_predictions
+        negative_mask = (predictions < self.positive_prediction_threshold) & valid_predictions
 
         confidence = 2 * torch.abs(predictions.nan_to_num() - self.positive_prediction_threshold)
 
@@ -120,6 +120,7 @@ class BaseEnsemble(ABC):
             with open(predicted_classes_file, "w") as f:
                 for cls in predicted_classes:
                     f.write(f"{cls}\n")
+            predicted_classes = {cls: i for i, cls in enumerate(predicted_classes)}
         else:
             print(f"Loading predictions from {preds_file} and label indexes from {predicted_classes_file}")
             ordered_predictions = torch.load(preds_file)
@@ -129,3 +130,33 @@ class BaseEnsemble(ABC):
         classwise_weights = self.calculate_classwise_weights(predicted_classes)
         aggregated_predictions = self.consolidate_predictions(ordered_predictions, predicted_classes, classwise_weights)
         return aggregated_predictions
+
+if __name__ == "__main__":
+    ensemble = BaseEnsemble({"resgated_0ps1g189":{
+  "type": "resgated",
+  "ckpt_path": "../python-chebai/logs/downloaded_ckpts/electra_resgated_comp/resgated_80-10-10_0ps1g189_epoch=122.ckpt",
+  "target_labels_path": "../python-chebai/data/chebi_v241/ChEBI50/processed/classes.txt",
+ "molecular_properties": [
+      "chebai_graph.preprocessing.properties.AtomType",
+      "chebai_graph.preprocessing.properties.NumAtomBonds",
+      "chebai_graph.preprocessing.properties.AtomCharge",
+      "chebai_graph.preprocessing.properties.AtomAromaticity",
+      "chebai_graph.preprocessing.properties.AtomHybridization",
+      "chebai_graph.preprocessing.properties.AtomNumHs",
+      "chebai_graph.preprocessing.properties.BondType",
+      "chebai_graph.preprocessing.properties.BondInRing",
+      "chebai_graph.preprocessing.properties.BondAromaticity",
+      "chebai_graph.preprocessing.properties.RDKit2DNormalized",
+    ],
+  "classwise_weights_path" : "../python-chebai/metrics_0ps1g189_80-10-10.json"
+    },
+
+"electra_14ko0zcf": {
+  "type": "electra",
+  "ckpt_path": "../python-chebai/logs/downloaded_ckpts/electra_resgated_comp/electra_80-10-10_14ko0zcf_epoch=193.ckpt",
+  "target_labels_path": "../python-chebai/data/chebi_v241/ChEBI50/processed/classes.txt",
+  "classwise_weights_path": "../python-chebai/metrics_electra_14ko0zcf_80-10-10.json",
+}
+    })
+    r = ensemble.predict_smiles_list(["[NH3+]CCCC[C@H](NC(=O)[C@@H]([NH3+])CC([O-])=O)C([O-])=O"], load_preds_if_possible=False)
+    print(len(r), r[0])
