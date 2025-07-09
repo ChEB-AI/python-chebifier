@@ -5,7 +5,7 @@ from chebai_graph.preprocessing.property_encoder import IndexEncoder, OneHotEnco
 from chebai_graph.preprocessing.reader import GraphPropertyReader
 from torch_geometric.data.data import Data as GeomData
 
-from chebifier.prediction_models.nn_predictor import NNPredictor
+from .nn_predictor import NNPredictor
 
 
 class ResGatedPredictor(NNPredictor):

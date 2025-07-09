@@ -19,5 +19,16 @@ class BasePredictor(ABC):
         else:
             self.classwise_weights = None
 
+        self._description = kwargs.get("description", None)
+
     def predict_smiles_list(self, smiles_list: list[str]) -> dict:
         raise NotImplementedError
+
+    @property
+    def info_text(self):
+        if self._description is None:
+            return "No description is available for this model."
+        return self._description
+
+    def explain_smiles(self, smiles):
+        return None

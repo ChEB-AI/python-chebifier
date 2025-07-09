@@ -3,11 +3,10 @@ import torch
 import tqdm
 from rdkit import Chem
 
-from chebifier.prediction_models.base_predictor import BasePredictor
+from .base_predictor import BasePredictor
 
 
 class NNPredictor(BasePredictor):
-
     def __init__(
         self,
         model_name: str,
