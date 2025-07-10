@@ -78,7 +78,10 @@ class BaseEnsemble(ABC):
         positive_mask = (predictions > self.positive_prediction_threshold) & valid_predictions
         negative_mask = (predictions < self.positive_prediction_threshold) & valid_predictions
 
-        confidence = 2 * torch.abs(predictions.nan_to_num() - self.positive_prediction_threshold)
+        if "use_confidence" in kwargs and kwargs["use_confidence"]:
+            confidence = 2 * torch.abs(predictions.nan_to_num() - self.positive_prediction_threshold)
+        else:
+            confidence = torch.ones_like(predictions)
 
         # Extract positive and negative weights
         pos_weights = classwise_weights[0]  # Shape: (num_classes, num_models)

@@ -26,6 +26,7 @@ ENSEMBLES = {
 @click.option('--output', '-o', type=click.Path(), help='Output file to save predictions (optional)')
 @click.option('--ensemble-type', '-e', type=click.Choice(ENSEMBLES.keys()), default='mv', help='Type of ensemble to use (default: Majority Voting)')
 @click.option("--chebi-version", "-v", type=int, default=241, help="ChEBI version to use for checking consistency (default: 241)")
+@click.option("--use-confidence", "-c", is_flag=True, default=True, help="Weight predictions based on how 'confident' a model is in its prediction (default: True)")
 def predict(config_file, smiles, smiles_file, output, ensemble_type, chebi_version):
     """Predict ChEBI classes for SMILES strings using an ensemble model.
     

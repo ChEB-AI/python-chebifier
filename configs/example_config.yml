@@ -1,0 +1,26 @@
+
+chemlog_peptides:
+    type: chemlog
+    model_weight: 100 # if chemlog is available, it always gets chosen
+my_resgated:
+  type: resgated
+  ckpt_path: my_resgated.ckpt # checkpoint trained with chebai
+  target_labels_path: ../python-chebai/data/chebi_v241/ChEBI50/processed/classes.txt # from the chebai dataset
+  molecular_properties: # list of properties used during training
+      - chebai_graph.preprocessing.properties.AtomType
+      - chebai_graph.preprocessing.properties.NumAtomBonds
+      - chebai_graph.preprocessing.properties.AtomCharge
+      - chebai_graph.preprocessing.properties.AtomAromaticity
+      - chebai_graph.preprocessing.properties.AtomHybridization
+      - chebai_graph.preprocessing.properties.AtomNumHs
+      - chebai_graph.preprocessing.properties.BondType
+      - chebai_graph.preprocessing.properties.BondInRing
+      - chebai_graph.preprocessing.properties.BondAromaticity
+      - chebai_graph.preprocessing.properties.RDKit2DNormalized
+  #classwise_weights_path: my_resgated_metrics.json # can be calculated with chebai.results.generate_class_properties
+
+my_electra:
+  type: electra
+  ckpt_path: my_electra.ckpt
+  target_labels_path: ../python-chebai/data/chebi_v241/ChEBI50/processed/classes.txt
+  #classwise_weights_path: my_electra_metrics.json # can be calculated with chebai.results.generate_class_properties
