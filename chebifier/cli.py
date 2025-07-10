@@ -25,7 +25,8 @@ ENSEMBLES = {
 @click.option('--smiles-file', '-f', type=click.Path(exists=True), help='File containing SMILES strings (one per line)')
 @click.option('--output', '-o', type=click.Path(), help='Output file to save predictions (optional)')
 @click.option('--ensemble-type', '-e', type=click.Choice(ENSEMBLES.keys()), default='mv', help='Type of ensemble to use (default: Majority Voting)')
-def predict(config_file, smiles, smiles_file, output, ensemble_type):
+@click.option("--chebi-version", "-v", type=int, default=241, help="ChEBI version to use for checking consistency (default: 241)")
+def predict(config_file, smiles, smiles_file, output, ensemble_type, chebi_version):
     """Predict ChEBI classes for SMILES strings using an ensemble model.
     
     CONFIG_FILE is the path to a YAML configuration file for the ensemble model.
@@ -35,7 +36,7 @@ def predict(config_file, smiles, smiles_file, output, ensemble_type):
         config = yaml.safe_load(f)
     
     # Instantiate ensemble model
-    ensemble = ENSEMBLES[ensemble_type](config)
+    ensemble = ENSEMBLES[ensemble_type](config, chebi_version=chebi_version)
     
     # Collect SMILES strings from arguments and/or file
     smiles_list = list(smiles)

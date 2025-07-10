@@ -2,6 +2,8 @@ import os
 from abc import ABC
 import torch
 import tqdm
+from chebai.preprocessing.datasets.chebi import ChEBIOver50
+from chebai.result.analyse_sem import PredictionSmoother
 from rdkit import Chem
 
 from chebifier.prediction_models.base_predictor import BasePredictor
@@ -17,7 +19,7 @@ MODEL_TYPES = {
 
 class BaseEnsemble(ABC):
 
-    def __init__(self, model_configs: dict):
+    def __init__(self, model_configs: dict, chebi_version: int = 241):
         self.models = []
         self.positive_prediction_threshold = 0.5
         for model_name, model_config in model_configs.items():
@@ -25,6 +27,12 @@ class BaseEnsemble(ABC):
             model_instance = model_cls(model_name, **model_config)
             assert isinstance(model_instance, BasePredictor)
             self.models.append(model_instance)
+
+        self.smoother = PredictionSmoother(ChEBIOver50(chebi_version=chebi_version), disjoint_files=[
+            os.path.join("data", "disjoint_chebi.csv"),
+            os.path.join("data", "disjoint_additional.csv")
+        ])
+
 
     def gather_predictions(self, smiles_list):
         # get predictions from all models for the SMILES list
@@ -52,16 +60,12 @@ class BaseEnsemble(ABC):
         return ordered_logits, predicted_classes
 
 
-    def consolidate_predictions(self, predictions, predicted_classes, classwise_weights, **kwargs):
+    def consolidate_predictions(self, predictions, classwise_weights, **kwargs):
         """
         Aggregates predictions from multiple models using weighted majority voting.
         Optimized version using tensor operations instead of for loops.
         """
         num_smiles, num_classes, num_models = predictions.shape
-
-        # Create a mapping from class indices to class names for faster lookup
-        class_names = list(predicted_classes.keys())
-        class_indices = {predicted_classes[cls]: cls for cls in class_names}
 
         # Get predictions for all classes
         valid_predictions = ~torch.isnan(predictions)
@@ -94,14 +98,9 @@ class BaseEnsemble(ABC):
         net_score = positive_sum - negative_sum  # Shape: (num_smiles, num_classes)
         class_decisions = (net_score > 0) & has_valid_predictions  # Shape: (num_smiles, num_classes)
 
-        # Convert tensor decisions to result list using list comprehension for efficiency
-        result = [
-            [class_indices[idx.item()] for idx in torch.nonzero(class_decisions[i], as_tuple=True)[0]]
-            for i in range(num_smiles)
-        ]
 
-        return result
 
+        return class_decisions
 
     def calculate_classwise_weights(self, predicted_classes):
         """No weights, simple majority voting"""
@@ -128,14 +127,26 @@ class BaseEnsemble(ABC):
                 predicted_classes = {line.strip(): i for i, line in enumerate(f.readlines())}
 
         classwise_weights = self.calculate_classwise_weights(predicted_classes)
-        aggregated_predictions = self.consolidate_predictions(ordered_predictions, predicted_classes, classwise_weights)
-        return aggregated_predictions
+        class_decisions = self.consolidate_predictions(ordered_predictions, classwise_weights)
+        # Smooth predictions
+        class_names = list(predicted_classes.keys())
+        self.smoother.label_names = class_names
+        class_decisions = self.smoother(class_decisions)
+
+        class_names = list(predicted_classes.keys())
+        class_indices = {predicted_classes[cls]: cls for cls in class_names}
+        result = [
+            [class_indices[idx.item()] for idx in torch.nonzero(i, as_tuple=True)[0]]
+            for i in class_decisions
+        ]
+
+        return result
 
 if __name__ == "__main__":
     ensemble = BaseEnsemble({"resgated_0ps1g189":{
   "type": "resgated",
-  "ckpt_path": "../python-chebai/logs/downloaded_ckpts/electra_resgated_comp/resgated_80-10-10_0ps1g189_epoch=122.ckpt",
-  "target_labels_path": "../python-chebai/data/chebi_v241/ChEBI50/processed/classes.txt",
+  "ckpt_path": "data/0ps1g189/epoch=122.ckpt",
+  "target_labels_path": "data/chebi_v241/ChEBI50/processed/classes.txt",
  "molecular_properties": [
       "chebai_graph.preprocessing.properties.AtomType",
       "chebai_graph.preprocessing.properties.NumAtomBonds",
@@ -148,14 +159,14 @@ if __name__ == "__main__":
       "chebai_graph.preprocessing.properties.BondAromaticity",
       "chebai_graph.preprocessing.properties.RDKit2DNormalized",
     ],
-  "classwise_weights_path" : "../python-chebai/metrics_0ps1g189_80-10-10.json"
+  #"classwise_weights_path" : "../python-chebai/metrics_0ps1g189_80-10-10.json"
     },
 
 "electra_14ko0zcf": {
   "type": "electra",
-  "ckpt_path": "../python-chebai/logs/downloaded_ckpts/electra_resgated_comp/electra_80-10-10_14ko0zcf_epoch=193.ckpt",
-  "target_labels_path": "../python-chebai/data/chebi_v241/ChEBI50/processed/classes.txt",
-  "classwise_weights_path": "../python-chebai/metrics_electra_14ko0zcf_80-10-10.json",
+  "ckpt_path": "data/14ko0zcf/epoch=193.ckpt",
+  "target_labels_path": "data/chebi_v241/ChEBI50/processed/classes.txt",
+  #"classwise_weights_path": "../python-chebai/metrics_electra_14ko0zcf_80-10-10.json",
 }
     })
     r = ensemble.predict_smiles_list(["[NH3+]CCCC[C@H](NC(=O)[C@@H]([NH3+])CC([O-])=O)C([O-])=O"], load_preds_if_possible=False)
