@@ -3,7 +3,6 @@
 
 import click
 import yaml
-import sys
 from chebifier.ensemble.base_ensemble import BaseEnsemble
 from chebifier.ensemble.weighted_majority_ensemble import WMVwithPPVNPVEnsemble, WMVwithF1Ensemble
 

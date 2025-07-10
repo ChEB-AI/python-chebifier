@@ -12,6 +12,9 @@ cd python-chebifier
 pip install -e .
 ```
 
+Some dependencies of `chebai-graph` cannot be installed automatically. If you want to use Graph Neural Networks, follow
+the instructions in the [chebai-graph repository](https://github.com/ChEB-AI/python-chebai-graph).
+
 ## Usage
 
 ### Command Line Interface

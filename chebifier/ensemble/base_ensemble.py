@@ -4,7 +4,6 @@ import torch
 import tqdm
 from chebai.preprocessing.datasets.chebi import ChEBIOver50
 from chebai.result.analyse_sem import PredictionSmoother
-from rdkit import Chem
 
 from chebifier.prediction_models.base_predictor import BasePredictor
 from chebifier.prediction_models.chemlog_predictor import ChemLogPredictor
