@@ -24,7 +24,6 @@ dependencies = [
     "tqdm",
     "rdkit",
     "chebai>=1.0.1",
-    "chebai_graph @ git+https://github.com/ChEB-AI/python-chebai-graph.git",
     "chemlog>=1.0.4"
 ]
 
