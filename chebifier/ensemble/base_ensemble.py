@@ -37,6 +37,12 @@ class BaseEnsemble:
             os.path.join("data", "disjoint_additional.csv"),
         ]
 
+        self.smoother = PredictionSmoother(
+            self.chebi_dataset,
+            label_names=None,
+            disjoint_files=self.disjoint_files,
+        )
+
     def gather_predictions(self, smiles_list):
         # get predictions from all models for the SMILES list
         # order them by alphabetically by label class
@@ -164,13 +170,8 @@ class BaseEnsemble:
         # Smooth predictions
         start_time = time.perf_counter()
         class_names = list(predicted_classes.keys())
-        # initialise new smoother class since we don't know the labels beforehand (#todo this could be more efficient)
-        new_smoother = PredictionSmoother(
-            self.chebi_dataset,
-            label_names=class_names,
-            disjoint_files=self.disjoint_files,
-        )
-        class_decisions = new_smoother(class_decisions)
+        self.smoother.set_label_names(class_names)
+        class_decisions = self.smoother(class_decisions)
         end_time = time.perf_counter()
         print(f"Prediction smoothing took {end_time - start_time:.2f} seconds")
 
