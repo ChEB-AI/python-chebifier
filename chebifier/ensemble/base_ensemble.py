@@ -1,22 +1,13 @@
 import os
-from abc import ABC
 import torch
 import tqdm
 from chebai.preprocessing.datasets.chebi import ChEBIOver50
 from chebai.result.analyse_sem import PredictionSmoother
 
 from chebifier.prediction_models.base_predictor import BasePredictor
-from chebifier.prediction_models.chemlog_predictor import ChemLogPredictor
-from chebifier.prediction_models.electra_predictor import ElectraPredictor
-from chebifier.prediction_models.gnn_predictor import ResGatedPredictor
 
-MODEL_TYPES = {
-    "electra": ElectraPredictor,
-    "resgated": ResGatedPredictor,
-    "chemlog": ChemLogPredictor
-}
 
-class BaseEnsemble(ABC):
+class BaseEnsemble:
 
     def __init__(self, model_configs: dict, chebi_version: int = 241):
         # Deferred Import: To avoid circular import error
