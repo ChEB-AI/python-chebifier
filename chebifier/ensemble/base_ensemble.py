@@ -1,10 +1,11 @@
 import os
+import time
+
 import torch
 import tqdm
 from chebai.preprocessing.datasets.chebi import ChEBIOver50
 from chebai.result.analyse_sem import PredictionSmoother
 
-from api.hugging_face import download_model_files
 from chebifier.prediction_models.base_predictor import BasePredictor
 
 
@@ -19,6 +20,7 @@ class BaseEnsemble:
         for model_name, model_config in model_configs.items():
             model_cls = MODEL_TYPES[model_config["type"]]
             if "hugging_face" in model_config:
+                from api.hugging_face import download_model_files
                 hugging_face_kwargs = download_model_files(model_config["hugging_face"])
             else:
                 hugging_face_kwargs = {}
@@ -118,9 +120,10 @@ class BaseEnsemble:
         net_score = positive_sum - negative_sum  # Shape: (num_smiles, num_classes)
         class_decisions = (
             net_score > 0
-        ) & has_valid_predictions  # Shape: (num_smiles, num_classes)
+        ) & has_valid_predictions # Shape: (num_smiles, num_classes)
 
-        return class_decisions
+        complete_failure = torch.all(~has_valid_predictions, dim=1)
+        return class_decisions, complete_failure
 
     def calculate_classwise_weights(self, predicted_classes):
         """No weights, simple majority voting"""
@@ -155,24 +158,27 @@ class BaseEnsemble:
                 }
 
         classwise_weights = self.calculate_classwise_weights(predicted_classes)
-        class_decisions = self.consolidate_predictions(
+        class_decisions, is_failure = self.consolidate_predictions(
             ordered_predictions, classwise_weights, **kwargs
         )
         # Smooth predictions
+        start_time = time.perf_counter()
         class_names = list(predicted_classes.keys())
-        # initialise new smoother class since we don't know the labels beforehand (this could be more efficient)
+        # initialise new smoother class since we don't know the labels beforehand (#todo this could be more efficient)
         new_smoother = PredictionSmoother(
             self.chebi_dataset,
             label_names=class_names,
             disjoint_files=self.disjoint_files,
         )
         class_decisions = new_smoother(class_decisions)
+        end_time = time.perf_counter()
+        print(f"Prediction smoothing took {end_time - start_time:.2f} seconds")
 
         class_names = list(predicted_classes.keys())
         class_indices = {predicted_classes[cls]: cls for cls in class_names}
         result = [
-            [class_indices[idx.item()] for idx in torch.nonzero(i, as_tuple=True)[0]]
-            for i in class_decisions
+            [class_indices[idx.item()] for idx in torch.nonzero(i, as_tuple=True)[0]] if not failure else None
+            for i, failure in zip(class_decisions, is_failure)
         ]
 
         return result
@@ -208,7 +214,7 @@ if __name__ == "__main__":
         }
     )
     r = ensemble.predict_smiles_list(
-        ["[NH3+]CCCC[C@H](NC(=O)[C@@H]([NH3+])CC([O-])=O)C([O-])=O"],
+        ["[NH3+]CCCC[C@H](NC(=O)[C@@H]([NH3+])CC([O-])=O)C([O-])=O", "C[C@H](N)C(=O)NCC(O)=O#", ""],
         load_preds_if_possible=False,
     )
     print(len(r), r[0])
