@@ -10,9 +10,9 @@ from chebifier.prediction_models import (
 )
 
 ENSEMBLES = {
-    "en_mv": BaseEnsemble,
-    "en_wmv-ppvnpv": WMVwithPPVNPVEnsemble,
-    "en_wmv-f1": WMVwithF1Ensemble,
+    "mv": BaseEnsemble,
+    "wmv-ppvnpv": WMVwithPPVNPVEnsemble,
+    "wmv-f1": WMVwithF1Ensemble,
 }
 
 

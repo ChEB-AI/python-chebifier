@@ -1,3 +1,5 @@
+import os
+
 import click
 import yaml
 
@@ -9,14 +11,14 @@ def cli():
     pass
 
 @cli.command()
-@click.argument('config_file', type=click.Path(exists=True))
+@click.option('--config_file', type=click.Path(exists=True), default=os.path.join('configs', 'huggingface_config.yml'), help="Configuration file for ensemble models")
 @click.option('--smiles', '-s', multiple=True, help='SMILES strings to predict')
 @click.option('--smiles-file', '-f', type=click.Path(exists=True), help='File containing SMILES strings (one per line)')
 @click.option('--output', '-o', type=click.Path(), help='Output file to save predictions (optional)')
 @click.option('--ensemble-type', '-e', type=click.Choice(ENSEMBLES.keys()), default='mv', help='Type of ensemble to use (default: Majority Voting)')
 @click.option("--chebi-version", "-v", type=int, default=241, help="ChEBI version to use for checking consistency (default: 241)")
 @click.option("--use-confidence", "-c", is_flag=True, default=True, help="Weight predictions based on how 'confident' a model is in its prediction (default: True)")
-def predict(config_file, smiles, smiles_file, output, ensemble_type, chebi_version):
+def predict(config_file, smiles, smiles_file, output, ensemble_type, chebi_version, use_confidence):
     """Predict ChEBI classes for SMILES strings using an ensemble model.
     
     CONFIG_FILE is the path to a YAML configuration file for the ensemble model.
@@ -39,7 +41,7 @@ def predict(config_file, smiles, smiles_file, output, ensemble_type, chebi_versi
         return
 
     # Make predictions
-    predictions = ensemble.predict_smiles_list(smiles_list)
+    predictions = ensemble.predict_smiles_list(smiles_list, use_confidence=use_confidence)
 
     if output:
         # save as json

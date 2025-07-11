@@ -4,6 +4,7 @@ import tqdm
 from chebai.preprocessing.datasets.chebi import ChEBIOver50
 from chebai.result.analyse_sem import PredictionSmoother
 
+from api.hugging_face import download_model_files
 from chebifier.prediction_models.base_predictor import BasePredictor
 
 
@@ -17,14 +18,20 @@ class BaseEnsemble:
         self.positive_prediction_threshold = 0.5
         for model_name, model_config in model_configs.items():
             model_cls = MODEL_TYPES[model_config["type"]]
-            model_instance = model_cls(model_name, **model_config)
+            if "hugging_face" in model_config:
+                hugging_face_kwargs = download_model_files(model_config["hugging_face"])
+            else:
+                hugging_face_kwargs = {}
+            model_instance = model_cls(model_name, **model_config, **hugging_face_kwargs)
             assert isinstance(model_instance, BasePredictor)
             self.models.append(model_instance)
 
-        self.smoother = PredictionSmoother(ChEBIOver50(chebi_version=chebi_version), disjoint_files=[
+        self.chebi_dataset = ChEBIOver50(chebi_version=chebi_version)
+        self.chebi_dataset._download_required_data()  # download chebi if not already downloaded
+        self.disjoint_files=[
             os.path.join("data", "disjoint_chebi.csv"),
             os.path.join("data", "disjoint_additional.csv")
-        ])
+        ]
 
 
     def gather_predictions(self, smiles_list):
@@ -110,7 +117,7 @@ class BaseEnsemble:
 
         return positive_weights, negative_weights
 
-    def predict_smiles_list(self, smiles_list, load_preds_if_possible=True) -> list:
+    def predict_smiles_list(self, smiles_list, load_preds_if_possible=True, **kwargs) -> list:
         preds_file = f"predictions_by_model_{'_'.join(model.model_name for model in self.models)}.pt"
         predicted_classes_file = f"predicted_classes_{'_'.join(model.model_name for model in self.models)}.txt"
         if not load_preds_if_possible or not os.path.isfile(preds_file):
@@ -128,11 +135,12 @@ class BaseEnsemble:
                 predicted_classes = {line.strip(): i for i, line in enumerate(f.readlines())}
 
         classwise_weights = self.calculate_classwise_weights(predicted_classes)
-        class_decisions = self.consolidate_predictions(ordered_predictions, classwise_weights)
+        class_decisions = self.consolidate_predictions(ordered_predictions, classwise_weights, **kwargs)
         # Smooth predictions
         class_names = list(predicted_classes.keys())
-        self.smoother.label_names = class_names
-        class_decisions = self.smoother(class_decisions)
+        # initialise new smoother class since we don't know the labels beforehand (this could be more efficient)
+        new_smoother = PredictionSmoother(self.chebi_dataset, label_names=class_names, disjoint_files=self.disjoint_files)
+        class_decisions = new_smoother(class_decisions)
 
         class_names = list(predicted_classes.keys())
         class_indices = {predicted_classes[cls]: cls for cls in class_names}

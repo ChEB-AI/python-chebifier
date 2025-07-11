@@ -27,9 +27,6 @@ dependencies = [
     "chemlog>=1.0.4"
 ]
 
-[project.scripts]
-chebifier = "chebifier.cli:cli"
-
 
 [tool.setuptools]
 packages = ["chebifier", "chebifier.ensemble", "chebifier.prediction_models"]

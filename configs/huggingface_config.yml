@@ -1,0 +1,22 @@
+
+chemlog_peptides:
+    type: chemlog
+    model_weight: 100
+
+#resgated_huggingface:
+#  type: resgated
+#  hugging_face:
+#    repo_id: aditya0by0/python-chebifier
+#    subfolder: resgated
+#    files:
+#      ckpt: resgated.ckpt
+#      labels: classes.txt
+
+electra_huggingface:
+  type: electra
+  hugging_face:
+    repo_id: aditya0by0/python-chebifier
+    subfolder: electra
+    files:
+      ckpt: electra.ckpt
+      labels: classes.txt
