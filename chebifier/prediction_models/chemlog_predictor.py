@@ -9,6 +9,7 @@ from chemlog.alg_classification.substructure_classifier import (
     is_emericellamide,
 )
 from chemlog.cli import CLASSIFIERS, _smiles_to_mol, strategy_call
+from chemlog_extra.alg_classification.by_element_classification import XMolecularEntityClassifier, OrganoXCompoundClassifier
 
 from .base_predictor import BasePredictor
 
@@ -38,8 +39,23 @@ AA_DICT = {
     "Y": "L-tyrosine",
 }
 
+class ChemlogByElementPredictor(BasePredictor):
 
-class ChemLogPredictor(BasePredictor):
+    def __init__(self, model_name: str, **kwargs):
+        super().__init__(model_name, **kwargs)
+        self.x_molecular = XMolecularEntityClassifier()
+        self.organo_x = OrganoXCompoundClassifier()
+
+    def predict_smiles_list(self, smiles_list: list[str]) -> list:
+        mol_list = [_smiles_to_mol(smiles) for smiles in smiles_list]
+        return [
+            {str(cls): 1 for cls in self.x_molecular.classify(mol)[0] + self.organo_x.classify(mol)[0]}
+            if mol
+            else None
+            for mol in mol_list
+        ]
+
+class ChemlogPeptidesPredictor(BasePredictor):
     def __init__(self, model_name: str, **kwargs):
         super().__init__(model_name, **kwargs)
         self.strategy = "algo"
@@ -333,7 +349,12 @@ class ChemLogPredictor(BasePredictor):
 
     def explain_smiles(self, smiles) -> dict:
         info = self.get_chemlog_result_info(smiles)
-        highlight_blocks = self.build_explain_blocks_peptides(info)
+        zero_blocks = [
+            ("text", "Results for peptides and peptide-related classes (e.g. peptide anion, depsipeptide) have been calculated"
+				"with a rule-based system. The following shows which parts of the molecule were identified as relevant"
+				"structures and have influenced the classification.")
+        ]
+        highlight_blocks = zero_blocks + self.build_explain_blocks_peptides(info)
 
         for chebi_id, internal_name in [
             (64372, "emericellamide"),

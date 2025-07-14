@@ -4,9 +4,10 @@ from chebifier.ensemble.weighted_majority_ensemble import (
     WMVwithPPVNPVEnsemble,
 )
 from chebifier.prediction_models import (
-    ChemLogPredictor,
+    ChemlogPeptidesPredictor,
     ElectraPredictor,
     ResGatedPredictor,
+    ChEBILookupPredictor, ChemlogByElementPredictor
 )
 
 ENSEMBLES = {
@@ -19,7 +20,9 @@ ENSEMBLES = {
 MODEL_TYPES = {
     "electra": ElectraPredictor,
     "resgated": ResGatedPredictor,
-    "chemlog": ChemLogPredictor,
+    "chemlog_peptides": ChemlogPeptidesPredictor,
+    "chebi_lookup": ChEBILookupPredictor,
+    "chemlog_element": ChemlogByElementPredictor
 }
 
 
