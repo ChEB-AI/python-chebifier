@@ -7,8 +7,9 @@ from chebifier.prediction_models import (
     ChemlogPeptidesPredictor,
     ElectraPredictor,
     ResGatedPredictor,
-    ChEBILookupPredictor, ChemlogByElementPredictor
+    ChEBILookupPredictor
 )
+from chebifier.prediction_models.chemlog_predictor import ChemlogXMolecularEntityPredictor, ChemlogOrganoXCompoundPredictor
 
 ENSEMBLES = {
     "mv": BaseEnsemble,
@@ -22,7 +23,8 @@ MODEL_TYPES = {
     "resgated": ResGatedPredictor,
     "chemlog_peptides": ChemlogPeptidesPredictor,
     "chebi_lookup": ChEBILookupPredictor,
-    "chemlog_element": ChemlogByElementPredictor
+    "chemlog_element": ChemlogXMolecularEntityPredictor,
+    "chemlog_organox": ChemlogOrganoXCompoundPredictor,
 }
 
 

@@ -39,21 +39,25 @@ AA_DICT = {
     "Y": "L-tyrosine",
 }
 
-class ChemlogByElementPredictor(BasePredictor):
+class ChemlogExtraPredictor(BasePredictor):
+
+    CHEMLOG_CLASSIFIER = None
 
     def __init__(self, model_name: str, **kwargs):
         super().__init__(model_name, **kwargs)
-        self.x_molecular = XMolecularEntityClassifier()
-        self.organo_x = OrganoXCompoundClassifier()
+        self.classifier = self.CHEMLOG_CLASSIFIER()
 
     def predict_smiles_list(self, smiles_list: list[str]) -> list:
         mol_list = [_smiles_to_mol(smiles) for smiles in smiles_list]
-        return [
-            {str(cls): 1 for cls in self.x_molecular.classify(mol)[0] + self.organo_x.classify(mol)[0]}
-            if mol
-            else None
-            for mol in mol_list
-        ]
+        return self.classifier.classify(mol_list)
+
+class ChemlogXMolecularEntityPredictor(ChemlogExtraPredictor):
+
+    CHEMLOG_CLASSIFIER = XMolecularEntityClassifier
+
+class ChemlogOrganoXCompoundPredictor(ChemlogExtraPredictor):
+
+    CHEMLOG_CLASSIFIER = OrganoXCompoundClassifier
 
 class ChemlogPeptidesPredictor(BasePredictor):
     def __init__(self, model_name: str, **kwargs):

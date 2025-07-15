@@ -3,7 +3,7 @@ import os
 import click
 import yaml
 
-from .model_registry import ENSEMBLES
+from chebifier.model_registry import ENSEMBLES
 
 
 @click.group()
