@@ -355,8 +355,8 @@ class ChemlogPeptidesPredictor(BasePredictor):
         info = self.get_chemlog_result_info(smiles)
         zero_blocks = [
             ("text", "Results for peptides and peptide-related classes (e.g. peptide anion, depsipeptide) have been calculated"
-				"with a rule-based system. The following shows which parts of the molecule were identified as relevant"
-				"structures and have influenced the classification.")
+				" with a rule-based system. The following shows which parts of the molecule were identified as relevant"
+				" structures and have influenced the classification.")
         ]
         highlight_blocks = zero_blocks + self.build_explain_blocks_peptides(info)
 
