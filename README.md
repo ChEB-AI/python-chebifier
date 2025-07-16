@@ -76,17 +76,20 @@ The aggregation happens separately for all positive predictions (i.e., $p_c^{m_i
 ($p_c^{m_i} < 0.5$). If the aggregated value is larger for the positive predictions than for the negative predictions,
 the ensemble makes a positive prediction for class $c$:
 
+<img width="2297" height="114" alt="image" src="https://github.com/user-attachments/assets/2f0263ae-83ac-41ea-938a-c71b46082c22" />
+<!-- For some reason, this formula does not render in GitHub markdown. Therefore, I rendered it locally and added it as an image. The rendered formula is:
 $$
 \text{ensemble}(c) = \begin{cases} 
 1 & \text{if } \sum_{i: p_c^{m_i} \geq 0.5} [\text{confidence}_c^{m_i} \cdot \text{model_weight}_{m_i} \cdot \text{trust}_c^{m_i}] > \sum_{i: p_c^{m_i} < 0.5} [\text{confidence}_c^{m_i} \cdot \text{model_weight}_{m_i} \cdot \text{trust}_c^{m_i}] \\
 0 & \text{otherwise}
 \end{cases}
 $$
+-->
 
 Here, confidence is the model's (self-reported) confidence in its prediction, calculated as
-$$
+$
 \text{confidence}_c^{m_i} = 2|p_c^{m_i} - 0.5|
-$$
+$
 For example, if a model makes a positive prediction with $p_c^{m_i} = 0.55$, the confidence is $2|0.55 - 0.5| = 0.1$.
 One could say that the model is not very confident in its prediction and very close to switching to a negative prediction.
 If another model is very sure about its negative prediction with $p_c^{m_j} = 0.1$, the confidence is $2|0.1 - 0.5| = 0.8$.
