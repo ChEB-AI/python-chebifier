@@ -103,7 +103,8 @@ Trust is based on the model's performance on a validation set. After training, w
 on a validation set for each class. If the `ensemble_type` is set to `wmv-f1`, the trust is calculated as 1 + the F1 score.
 If the `ensemble_type` is set to `mv` (the default), the trust is set to 1 for all models.
 
-3. After a decision has been made for each class independently, the consistency of the predictions with regard to the ChEBI hierarchy 
+### Inconsistency correction
+After a decision has been made for each class independently, the consistency of the predictions with regard to the ChEBI hierarchy 
 and disjointness axioms is checked. This is
 done in 3 steps:
 - (1) First, the hierarchy is corrected. For each pair of classes $A$ and $B$ where $A$ is a subclass of $B$ (following 
@@ -113,7 +114,7 @@ belongs to the direct and indirect superclasses (e.g., primary alcohol, aromatic
 - (2) Next, we check for disjointness. This is not specified directly in ChEBI, but in an additional ChEBI module ([chebi-disjoints.owl](https://ftp.ebi.ac.uk/pub/databases/chebi/ontology/)).
 We have extracted these disjointness axioms into a CSV file and added some more disjointness axioms ourselves (see
 `data>disjoint_chebi.csv` and `data>disjoint_additional.csv`). If two classes $A$ and $B$ are disjoint and we predict
-both, we select one of them randomly and set the other to 0.
+both, we select one of them randomly (https://github.com/ChEB-AI/python-chebifier/issues/6) and set the other to 0.
 - (3) Since the second step might have introduced new inconsistencies into the hierarchy, we repeat the first step, but 
 with a small change. For a pair of classes $A \subseteq B$ with predictions $1$ and $0$, instead of setting $B$ to $1$,
 we now set $A$ to $0$. This has the advantage that we cannot introduce new disjointness-inconsistencies and don't have
