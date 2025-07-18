@@ -4,7 +4,7 @@ import time
 import torch
 import tqdm
 from chebai.preprocessing.datasets.chebi import ChEBIOver50
-from chebai.result.analyse_sem import PredictionSmoother
+from chebai.result.analyse_sem import PredictionSmoother, get_chebi_graph
 
 from chebifier.prediction_models.base_predictor import BasePredictor
 
@@ -14,6 +14,14 @@ class BaseEnsemble:
     def __init__(self, model_configs: dict, chebi_version: int = 241):
         # Deferred Import: To avoid circular import error
         from chebifier.model_registry import MODEL_TYPES
+
+        self.chebi_dataset = ChEBIOver50(chebi_version=chebi_version)
+        self.chebi_dataset._download_required_data()  # download chebi if not already downloaded
+        self.chebi_graph = get_chebi_graph(self.chebi_dataset, None)
+        self.disjoint_files = [
+            os.path.join("data", "disjoint_chebi.csv"),
+            os.path.join("data", "disjoint_additional.csv"),
+        ]
 
         self.models = []
         self.positive_prediction_threshold = 0.5
@@ -25,17 +33,12 @@ class BaseEnsemble:
             else:
                 hugging_face_kwargs = {}
             model_instance = model_cls(
-                model_name, **model_config, **hugging_face_kwargs
+                model_name, **model_config, **hugging_face_kwargs, chebi_graph=self.chebi_graph
             )
             assert isinstance(model_instance, BasePredictor)
             self.models.append(model_instance)
 
-        self.chebi_dataset = ChEBIOver50(chebi_version=chebi_version)
-        self.chebi_dataset._download_required_data()  # download chebi if not already downloaded
-        self.disjoint_files = [
-            os.path.join("data", "disjoint_chebi.csv"),
-            os.path.join("data", "disjoint_additional.csv"),
-        ]
+
 
         self.smoother = PredictionSmoother(
             self.chebi_dataset,
@@ -54,7 +57,7 @@ class BaseEnsemble:
                 if logits_for_smiles is not None:
                     for cls in logits_for_smiles:
                         predicted_classes.add(cls)
-        print("Sorting predictions...")
+        print(f"Sorting predictions from {len(model_predictions)} models...")
         predicted_classes = sorted(list(predicted_classes))
         predicted_classes_dict = {cls: i for i, cls in enumerate(predicted_classes)}
         ordered_logits = (
@@ -75,7 +78,7 @@ class BaseEnsemble:
 
         return ordered_logits, predicted_classes
 
-    def consolidate_predictions(self, predictions, classwise_weights, **kwargs):
+    def consolidate_predictions(self, predictions, classwise_weights, predicted_classes, **kwargs):
         """
         Aggregates predictions from multiple models using weighted majority voting.
         Optimized version using tensor operations instead of for loops.
@@ -124,8 +127,17 @@ class BaseEnsemble:
 
         # Determine which classes to include for each SMILES
         net_score = positive_sum - negative_sum  # Shape: (num_smiles, num_classes)
+
+        # Smooth predictions
+        start_time = time.perf_counter()
+        class_names = list(predicted_classes.keys())
+        self.smoother.set_label_names(class_names)
+        smooth_net_score = self.smoother(net_score)
+        end_time = time.perf_counter()
+        print(f"Prediction smoothing took {end_time - start_time:.2f} seconds")
+
         class_decisions = (
-            net_score > 0
+            smooth_net_score > 0.5
         ) & has_valid_predictions # Shape: (num_smiles, num_classes)
 
         complete_failure = torch.all(~has_valid_predictions, dim=1)
@@ -139,7 +151,7 @@ class BaseEnsemble:
         return positive_weights, negative_weights
 
     def predict_smiles_list(
-        self, smiles_list, load_preds_if_possible=True, **kwargs
+        self, smiles_list, load_preds_if_possible=False, **kwargs
     ) -> list:
         preds_file = f"predictions_by_model_{'_'.join(model.model_name for model in self.models)}.pt"
         predicted_classes_file = f"predicted_classes_{'_'.join(model.model_name for model in self.models)}.txt"
@@ -147,6 +159,8 @@ class BaseEnsemble:
             ordered_predictions, predicted_classes = self.gather_predictions(
                 smiles_list
             )
+            if len(predicted_classes) == 0:
+                print(f"Warning: No classes have been predicted for the given SMILES list.")
             # save predictions
             torch.save(ordered_predictions, preds_file)
             with open(predicted_classes_file, "w") as f:
@@ -165,15 +179,8 @@ class BaseEnsemble:
 
         classwise_weights = self.calculate_classwise_weights(predicted_classes)
         class_decisions, is_failure = self.consolidate_predictions(
-            ordered_predictions, classwise_weights, **kwargs
+            ordered_predictions, classwise_weights, predicted_classes, **kwargs
         )
-        # Smooth predictions
-        start_time = time.perf_counter()
-        class_names = list(predicted_classes.keys())
-        self.smoother.set_label_names(class_names)
-        class_decisions = self.smoother(class_decisions)
-        end_time = time.perf_counter()
-        print(f"Prediction smoothing took {end_time - start_time:.2f} seconds")
 
         class_names = list(predicted_classes.keys())
         class_indices = {predicted_classes[cls]: cls for cls in class_names}

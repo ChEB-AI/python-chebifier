@@ -45,11 +45,24 @@ class ChemlogExtraPredictor(BasePredictor):
 
     def __init__(self, model_name: str, **kwargs):
         super().__init__(model_name, **kwargs)
+        self.chebi_graph = kwargs.get("chebi_graph", None)
         self.classifier = self.CHEMLOG_CLASSIFIER()
 
     def predict_smiles_list(self, smiles_list: list[str]) -> list:
         mol_list = [_smiles_to_mol(smiles) for smiles in smiles_list]
-        return self.classifier.classify(mol_list)
+        res = self.classifier.classify(mol_list)
+        if self.chebi_graph is not None:
+            for sample in res:
+                sample_additions = dict()
+                for cls in sample:
+                    if sample[cls] == 1:
+                        successors = list(self.chebi_graph.predecessors(int(cls)))
+                        if successors:
+                            for succ in successors:
+                                sample_additions[str(succ)] = 1
+                sample.update(sample_additions)
+        return res
+
 
 class ChemlogXMolecularEntityPredictor(ChemlogExtraPredictor):
 
@@ -63,6 +76,7 @@ class ChemlogPeptidesPredictor(BasePredictor):
     def __init__(self, model_name: str, **kwargs):
         super().__init__(model_name, **kwargs)
         self.strategy = "algo"
+        self.chebi_graph = kwargs.get("chebi_graph", None)
         self.classifier_instances = {
             k: v() for k, v in CLASSIFIERS[self.strategy].items()
         }
@@ -81,17 +95,21 @@ class ChemlogPeptidesPredictor(BasePredictor):
             if mol is None:
                 results.append(None)
             else:
+                pos_labels = [label for label in self.peptide_labels if label in strategy_call(
+                                self.strategy, self.classifier_instances, mol
+                            )["chebi_classes"]]
+                if self.chebi_graph:
+                    indirect_pos_labels = [str(pr) for label in pos_labels for pr in self.chebi_graph.predecessors(int(label))]
+                    pos_labels = list(set(pos_labels + indirect_pos_labels))
                 results.append(
                     {
                         label: (
                             1
                             if label
-                            in strategy_call(
-                                self.strategy, self.classifier_instances, mol
-                            )["chebi_classes"]
+                            in pos_labels
                             else 0
                         )
-                        for label in self.peptide_labels
+                        for label in self.peptide_labels + pos_labels
                     }
                 )
 

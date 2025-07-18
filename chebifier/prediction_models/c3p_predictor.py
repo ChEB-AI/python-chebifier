@@ -15,13 +15,15 @@ class C3PPredictor(BasePredictor):
         super().__init__(model_name, **kwargs)
         self.program_directory = program_directory
         self.chemical_classes = chemical_classes
+        self.chebi_graph = kwargs.get("chebi_graph", None)
 
     def predict_smiles_list(self, smiles_list: list[str]) -> list:
-        result_list = c3p_classifier.classify(smiles_list, self.program_directory, self.chemical_classes, strict=False)
+        result_list = c3p_classifier.classify(smiles_list, self.program_directory, self.chemical_classes, strict=True)
         result_reformatted = [dict() for _ in range(len(smiles_list))]
         for result in result_list:
-            result_reformatted[smiles_list.index(result.input_smiles)][result.class_id.split(":")[1]] = result.is_match
-        print(f"C3P predictions for {len(smiles_list)} SMILES strings:")
-        for i, smiles in enumerate(smiles_list):
-            print(f"{smiles}: {result_reformatted[i]}")
+            chebi_id = result.class_id.split(":")[1]
+            result_reformatted[smiles_list.index(result.input_smiles)][chebi_id] = result.is_match
+            if result.is_match and self.chebi_graph is not None:
+                for parent in list(self.chebi_graph.predecessors(int(chebi_id))):
+                    result_reformatted[smiles_list.index(result.input_smiles)][str(parent)] = 1
         return result_reformatted

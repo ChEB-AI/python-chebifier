@@ -10,6 +10,14 @@ class ChEBILookupPredictor(BasePredictor):
         super().__init__(model_name, **kwargs)
         self._description = description or "ChEBI Lookup: If the SMILES is equivalent to a ChEBI entry, retrieve the classification of that entry."
         self.chebi_version = chebi_version
+        self.chebi_graph = kwargs.get("chebi_graph", None)
+        if self.chebi_graph is None:
+            from chebai.preprocessing.datasets.chebi import ChEBIOver50
+            self.chebi_dataset = ChEBIOver50(chebi_version=self.chebi_version)
+            self.chebi_dataset._download_required_data()
+            self.chebi_graph = self.chebi_dataset._extract_class_hierarchy(
+                os.path.join(self.chebi_dataset.raw_dir, "chebi.obo")
+            )
         self.lookup_table = self.get_smiles_lookup()
 
     def get_smiles_lookup(self):
@@ -26,15 +34,8 @@ class ChEBILookupPredictor(BasePredictor):
 
 
     def build_smiles_lookup(self):
-        # todo test
-        from chebai.preprocessing.datasets.chebi import ChEBIOver50
-        self.chebi_dataset = ChEBIOver50(chebi_version=self.chebi_version)
-        self.chebi_dataset._download_required_data()
-        chebi_graph = self.chebi_dataset._extract_class_hierarchy(
-            os.path.join(self.chebi_dataset.raw_dir, "chebi.obo")
-        )
         smiles_lookup = dict()
-        for chebi_id, smiles in nx.get_node_attributes(chebi_graph, "smiles").items():
+        for chebi_id, smiles in nx.get_node_attributes(self.chebi_graph, "smiles").items():
             if smiles is not None:
                 try:
                     mol = Chem.MolFromSmiles(smiles)
@@ -45,7 +46,7 @@ class ChEBILookupPredictor(BasePredictor):
                     if canonical_smiles not in smiles_lookup:
                         smiles_lookup[canonical_smiles] = []
                     # if the canonical SMILES is already in the lookup, append "different interpretation of the SMILES"
-                    smiles_lookup[canonical_smiles].append((chebi_id, list(chebi_graph.predecessors(chebi_id))))
+                    smiles_lookup[canonical_smiles].append((chebi_id, list(self.chebi_graph.predecessors(chebi_id))))
                 except Exception as e:
                     print(f"Failed to parse SMILES {smiles} for ChEBI ID {chebi_id}: {e}")
         return smiles_lookup
