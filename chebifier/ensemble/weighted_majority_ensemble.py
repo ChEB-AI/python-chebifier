@@ -45,13 +45,14 @@ class WMVwithF1Ensemble(BaseEnsemble):
             if model.classwise_weights is None:
                 continue
             for cls, weights in model.classwise_weights.items():
-                if (2 * weights["TP"] + weights["FP"] + weights["FN"]) > 0:
-                    f1 = (
-                        2
-                        * weights["TP"]
-                        / (2 * weights["TP"] + weights["FP"] + weights["FN"])
-                    )
-                    weights_by_cls[predicted_classes[cls], j] *= 1 + f1
+                if cls in predicted_classes:
+                    if (2 * weights["TP"] + weights["FP"] + weights["FN"]) > 0:
+                        f1 = (
+                            2
+                            * weights["TP"]
+                            / (2 * weights["TP"] + weights["FP"] + weights["FN"])
+                        )
+                        weights_by_cls[predicted_classes[cls], j] *= 1 + f1
 
         print("Calculated model weightings. The average weights are:")
         for i, model in enumerate(self.models):
