@@ -57,25 +57,26 @@ class NNPredictor(BasePredictor):
         could_not_parse = []
         index_map = dict()
         for i, smiles in enumerate(smiles_list):
+            if not smiles:
+                print(f"Model {self.model_name} received a missing SMILES string at position {i}.")
+                could_not_parse.append(i)
+                continue
             try:
-                # Try to parse the smiles string
-                if not smiles:
-                    raise ValueError()
                 d = self.read_smiles(smiles)
+
                 # This is just for sanity checks
                 rdmol = Chem.MolFromSmiles(smiles, sanitize=False)
-            except Exception as e:
-                # Note if it fails
-                could_not_parse.append(i)
-                print(f"Failing to parse {smiles} due to {e}")
-            else:
                 if rdmol is None:
+                    print(f"Model {self.model_name} received a SMILES string RDKit can't read at position {i}: {smiles}")
                     could_not_parse.append(i)
-                else:
-                    index_map[i] = len(token_dicts)
-                    token_dicts.append(d)
+                    continue
+            except Exception as e:
+                could_not_parse.append(i)
+                print(f"Model {self.model_name} failed to parse a SMILES string at position {i}: {smiles}")
+            index_map[i] = len(token_dicts)
+            token_dicts.append(d)
         results = []
-        if token_dicts:
+        if len(token_dicts) > 0:
             for batch in tqdm.tqdm(
                 self.batchify(token_dicts),
                 desc=f"{self.model_name}",

@@ -60,7 +60,7 @@ class ResGatedPredictor(NNPredictor):
                 if isinstance(prop.encoder, IndexEncoder):
                     if str(value) in prop.encoder.cache:
                         index = (
-                            prop.encoder.cache.index(str(value)) + prop.encoder.offset
+                            prop.encoder.cache[str(value)] + prop.encoder.offset
                         )
                     else:
                         index = 0
