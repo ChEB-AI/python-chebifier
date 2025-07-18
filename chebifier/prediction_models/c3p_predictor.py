@@ -18,7 +18,7 @@ class C3PPredictor(BasePredictor):
         self.chebi_graph = kwargs.get("chebi_graph", None)
 
     def predict_smiles_list(self, smiles_list: list[str]) -> list:
-        result_list = c3p_classifier.classify(smiles_list, self.program_directory, self.chemical_classes, strict=True)
+        result_list = c3p_classifier.classify(smiles_list, self.program_directory, self.chemical_classes, strict=False)
         result_reformatted = [dict() for _ in range(len(smiles_list))]
         for result in result_list:
             chebi_id = result.class_id.split(":")[1]
@@ -27,3 +27,21 @@ class C3PPredictor(BasePredictor):
                 for parent in list(self.chebi_graph.predecessors(int(chebi_id))):
                     result_reformatted[smiles_list.index(result.input_smiles)][str(parent)] = 1
         return result_reformatted
+
+    def explain_smiles(self, smiles):
+        """
+        C3P provides natural language explanations for each prediction (positive or negative). Since there are more
+        than 300 classes, only take the positive ones.
+        """
+        highlights = []
+        result_list = c3p_classifier.classify([smiles], self.program_directory, self.chemical_classes, strict=False)
+        for result in result_list:
+            if result.is_match:
+                highlights.append(
+                    ("text", f"For class {result.class_name} ({result.class_id}), C3P gave the following explanation: {result.reason}")
+                )
+        highlights = [
+                         ("text", f"C3P made positive predictions for {len(highlights)} classes. The explanations are as follows:")
+                     ] + highlights
+
+        return {"highlights": highlights}
