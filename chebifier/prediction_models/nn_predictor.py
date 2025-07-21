@@ -1,3 +1,5 @@
+from functools import lru_cache
+
 import numpy as np
 import torch
 import tqdm
@@ -50,7 +52,8 @@ class NNPredictor(BasePredictor):
         d = reader.to_data(dict(features=smiles, labels=None))
         return d
 
-    def predict_smiles_list(self, smiles_list) -> list:
+    @lru_cache(maxsize=100)
+    def predict_smiles_tuple(self, smiles_list: tuple[str]) -> list:
         """Returns a list with the length of smiles_list, each element is either None (=failure) or a dictionary
         Of classes and predicted values."""
         token_dicts = []

@@ -7,7 +7,7 @@ from chebai.preprocessing.datasets.chebi import ChEBIOver50
 from chebai.result.analyse_sem import PredictionSmoother, get_chebi_graph
 
 from chebifier.prediction_models.base_predictor import BasePredictor
-
+from functools import lru_cache
 
 class BaseEnsemble:
 

@@ -1,3 +1,6 @@
+from functools import lru_cache
+from typing import Optional
+
 from chebifier.prediction_models import BasePredictor
 import os
 import networkx as nx
@@ -51,32 +54,36 @@ class ChEBILookupPredictor(BasePredictor):
                     print(f"Failed to parse SMILES {smiles} for ChEBI ID {chebi_id}: {e}")
         return smiles_lookup
 
+    @lru_cache(maxsize=100)
+    def predict_smiles(self, smiles: str) -> Optional[dict]:
+        if not smiles:
+            return None
+        mol = Chem.MolFromSmiles(smiles)
+        if mol is None:
+            return None
+        canonical_smiles = Chem.MolToSmiles(mol)
+        if canonical_smiles in self.lookup_table:
+            parent_candidates = self.lookup_table[canonical_smiles]
+            preds_i = dict()
+            if len(parent_candidates) > 1:
+                print(
+                    f"Multiple matches found in ChEBI for SMILES {smiles}: {', '.join(str(chebi_id) for chebi_id, _ in parent_candidates)}")
+                for k in list(set(pp for _, p in parent_candidates for pp in p)):
+                    preds_i[str(k)] = 1
+            elif len(parent_candidates) == 1:
+                chebi_id, parents = parent_candidates[0]
+                for k in parents:
+                    preds_i[str(k)] = 1
+            else:
+                preds_i = None
+            return preds_i
+        else:
+            return None
 
-    def predict_smiles_list(self, smiles_list: list[str]) -> list:
+    def predict_smiles_tuple(self, smiles_list: list[str]) -> list:
         predictions = []
         for smiles in smiles_list:
-            if not smiles:
-                predictions.append(None)
-                continue
-            mol = Chem.MolFromSmiles(smiles)
-            if mol is None:
-                predictions.append(None)
-                continue
-            canonical_smiles = Chem.MolToSmiles(mol)
-            if canonical_smiles in self.lookup_table:
-                parent_candidates = self.lookup_table[canonical_smiles]
-                preds_i = dict()
-                if len(parent_candidates) > 1:
-                    print(f"Multiple matches found in ChEBI for SMILES {smiles}: {', '.join(str(chebi_id) for chebi_id, _ in parent_candidates)}")
-                    for k in list(set(pp for _, p in parent_candidates for pp in p)):
-                        preds_i[str(k)] = 1
-                elif len(parent_candidates) == 1:
-                    chebi_id, parents = parent_candidates[0]
-                    for k in parents:
-                        preds_i[str(k)] = 1
-                else:
-                    preds_i = None
-                predictions.append(preds_i)
+            predictions.append(self.predict_smiles(smiles))
 
         return predictions
 

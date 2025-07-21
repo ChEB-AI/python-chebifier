@@ -1,3 +1,4 @@
+from functools import lru_cache
 from typing import Optional, List
 from pathlib import Path
 
@@ -17,8 +18,9 @@ class C3PPredictor(BasePredictor):
         self.chemical_classes = chemical_classes
         self.chebi_graph = kwargs.get("chebi_graph", None)
 
-    def predict_smiles_list(self, smiles_list: list[str]) -> list:
-        result_list = c3p_classifier.classify(smiles_list, self.program_directory, self.chemical_classes, strict=False)
+    @lru_cache(maxsize=100)
+    def predict_smiles_tuple(self, smiles_list: tuple[str]) -> list:
+        result_list = c3p_classifier.classify(list(smiles_list), self.program_directory, self.chemical_classes, strict=False)
         result_reformatted = [dict() for _ in range(len(smiles_list))]
         for result in result_list:
             chebi_id = result.class_id.split(":")[1]

@@ -1,3 +1,5 @@
+from typing import Optional
+
 import tqdm
 from chemlog.alg_classification.charge_classifier import get_charge_category
 from chemlog.alg_classification.peptide_size_classifier import get_n_amino_acid_residues
@@ -10,6 +12,7 @@ from chemlog.alg_classification.substructure_classifier import (
 )
 from chemlog.cli import CLASSIFIERS, _smiles_to_mol, strategy_call
 from chemlog_extra.alg_classification.by_element_classification import XMolecularEntityClassifier, OrganoXCompoundClassifier
+from functools import lru_cache
 
 from .base_predictor import BasePredictor
 
@@ -48,7 +51,7 @@ class ChemlogExtraPredictor(BasePredictor):
         self.chebi_graph = kwargs.get("chebi_graph", None)
         self.classifier = self.CHEMLOG_CLASSIFIER()
 
-    def predict_smiles_list(self, smiles_list: list[str]) -> list:
+    def predict_smiles_tuple(self, smiles_list: tuple[str]) -> list:
         mol_list = [_smiles_to_mol(smiles) for smiles in smiles_list]
         res = self.classifier.classify(mol_list)
         if self.chebi_graph is not None:
@@ -88,30 +91,32 @@ class ChemlogPeptidesPredictor(BasePredictor):
         # fmt: on
         print(f"Initialised ChemLog model {self.model_name}")
 
-    def predict_smiles_list(self, smiles_list: list[str]) -> list:
+    @lru_cache(maxsize=100)
+    def predict_smiles(self, smiles: str) -> Optional[dict]:
+        mol = _smiles_to_mol(smiles)
+        if mol is None:
+            return None
+        pos_labels = [label for label in self.peptide_labels if label in strategy_call(
+            self.strategy, self.classifier_instances, mol
+        )["chebi_classes"]]
+        if self.chebi_graph:
+            indirect_pos_labels = [str(pr) for label in pos_labels for pr in
+                                   self.chebi_graph.predecessors(int(label))]
+            pos_labels = list(set(pos_labels + indirect_pos_labels))
+        return {
+                label: (
+                    1
+                    if label
+                       in pos_labels
+                    else 0
+                )
+                for label in self.peptide_labels + pos_labels
+            }
+
+    def predict_smiles_tuple(self, smiles_list: tuple[str]) -> list:
         results = []
         for i, smiles in tqdm.tqdm(enumerate(smiles_list)):
-            mol = _smiles_to_mol(smiles)
-            if mol is None:
-                results.append(None)
-            else:
-                pos_labels = [label for label in self.peptide_labels if label in strategy_call(
-                                self.strategy, self.classifier_instances, mol
-                            )["chebi_classes"]]
-                if self.chebi_graph:
-                    indirect_pos_labels = [str(pr) for label in pos_labels for pr in self.chebi_graph.predecessors(int(label))]
-                    pos_labels = list(set(pos_labels + indirect_pos_labels))
-                results.append(
-                    {
-                        label: (
-                            1
-                            if label
-                            in pos_labels
-                            else 0
-                        )
-                        for label in self.peptide_labels + pos_labels
-                    }
-                )
+            results.append(self.predict_smiles(smiles))
 
         for classifier in self.classifier_instances.values():
             classifier.on_finish()
