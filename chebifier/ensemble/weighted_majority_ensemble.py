@@ -3,9 +3,7 @@ import torch
 from chebifier.ensemble.base_ensemble import BaseEnsemble
 
 
-
 class WMVwithPPVNPVEnsemble(BaseEnsemble):
-
     def calculate_classwise_weights(self, predicted_classes):
         """
         Given the positions of predicted classes in the predictions tensor, assign weights to each class. The
@@ -23,15 +21,18 @@ class WMVwithPPVNPVEnsemble(BaseEnsemble):
                 positive_weights[predicted_classes[cls], j] *= weights["PPV"]
                 negative_weights[predicted_classes[cls], j] *= weights["NPV"]
 
-        print(f"Calculated model weightings. The averages for positive / negative weights are:")
+        print(
+            "Calculated model weightings. The averages for positive / negative weights are:"
+        )
         for i, model in enumerate(self.models):
-            print(f"{model.model_name}: {positive_weights[:, i].mean().item():.3f} / {negative_weights[:, i].mean().item():.3f}")
+            print(
+                f"{model.model_name}: {positive_weights[:, i].mean().item():.3f} / {negative_weights[:, i].mean().item():.3f}"
+            )
 
         return positive_weights, negative_weights
 
 
 class WMVwithF1Ensemble(BaseEnsemble):
-
     def calculate_classwise_weights(self, predicted_classes):
         """
         Given the positions of predicted classes in the predictions tensor, assign weights to each class. The
@@ -44,11 +45,16 @@ class WMVwithF1Ensemble(BaseEnsemble):
             if model.classwise_weights is None:
                 continue
             for cls, weights in model.classwise_weights.items():
-                if (2 * weights["TP"] + weights["FP"] + weights["FN"]) > 0:
-                    f1 = 2 * weights["TP"] / (2 * weights["TP"] + weights["FP"] + weights["FN"])
-                    weights_by_cls[predicted_classes[cls], j] *= 1 + f1
+                if cls in predicted_classes:
+                    if (2 * weights["TP"] + weights["FP"] + weights["FN"]) > 0:
+                        f1 = (
+                            2
+                            * weights["TP"]
+                            / (2 * weights["TP"] + weights["FP"] + weights["FN"])
+                        )
+                        weights_by_cls[predicted_classes[cls], j] *= 1 + f1
 
-        print(f"Calculated model weightings. The average weights are:")
+        print("Calculated model weightings. The average weights are:")
         for i, model in enumerate(self.models):
             print(f"{model.model_name}: {weights_by_cls[:, i].mean().item():.3f}")
 

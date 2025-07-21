@@ -1,16 +1,18 @@
-from chebifier.prediction_models.nn_predictor import NNPredictor
 import chebai_graph.preprocessing.properties as p
 import torch
 from chebai_graph.models.graph import ResGatedGraphConvNetGraphPred
-from chebai_graph.preprocessing.reader import GraphPropertyReader
 from chebai_graph.preprocessing.property_encoder import IndexEncoder, OneHotEncoder
+from chebai_graph.preprocessing.reader import GraphPropertyReader
 from torch_geometric.data.data import Data as GeomData
+
+from .nn_predictor import NNPredictor
 
 
 class ResGatedPredictor(NNPredictor):
-
     def __init__(self, model_name: str, ckpt_path: str, molecular_properties, **kwargs):
-        super().__init__(model_name, ckpt_path, reader_cls=GraphPropertyReader, **kwargs)
+        super().__init__(
+            model_name, ckpt_path, reader_cls=GraphPropertyReader, **kwargs
+        )
         # molecular_properties is a list of class paths
         if molecular_properties is not None:
             properties = [self.load_class(prop)() for prop in molecular_properties]
@@ -32,11 +34,13 @@ class ResGatedPredictor(NNPredictor):
 
     def init_model(self, ckpt_path: str, **kwargs) -> ResGatedGraphConvNetGraphPred:
         model = ResGatedGraphConvNetGraphPred.load_from_checkpoint(
-            ckpt_path, map_location=torch.device(self.device), criterion=None, strict=False, input_dim=128,
-            metrics=dict(train=dict(), test=dict(), validation=dict()), pretrained_checkpoint=None,
-            config={"in_length": 256, "hidden_length": 512, "dropout_rate": 0.1, "n_conv_layers": 3,
-                    "n_linear_layers": 3, "n_atom_properties": 158, "n_bond_properties": 7,
-                    "n_molecule_properties": 200})
+            ckpt_path,
+            map_location=torch.device(self.device),
+            criterion=None,
+            strict=False,
+            metrics=dict(train=dict(), test=dict(), validation=dict()),
+            pretrained_checkpoint=None,
+        )
         model.eval()
         return model
 
@@ -55,14 +59,19 @@ class ResGatedPredictor(NNPredictor):
                 # use default value if we meet an unseen value
                 if isinstance(prop.encoder, IndexEncoder):
                     if str(value) in prop.encoder.cache:
-                        index = prop.encoder.cache.index(str(value)) + prop.encoder.offset
+                        index = prop.encoder.cache[str(value)] + prop.encoder.offset
                     else:
                         index = 0
-                        print(f"Unknown property value {value} for property {prop} at smiles {smiles}")
+                        print(
+                            f"Unknown property value {value} for property {prop} at smiles {smiles}"
+                        )
                     if isinstance(prop.encoder, OneHotEncoder):
-                        encoded_values.append(torch.nn.functional.one_hot(
-                            torch.tensor(index), num_classes=prop.encoder.get_encoding_length()
-                        ))
+                        encoded_values.append(
+                            torch.nn.functional.one_hot(
+                                torch.tensor(index),
+                                num_classes=prop.encoder.get_encoding_length(),
+                            )
+                        )
                     else:
                         encoded_values.append(torch.tensor([index]))
 
@@ -77,9 +86,7 @@ class ResGatedPredictor(NNPredictor):
                 if len(encoded_values.size()) == 1:
                     encoded_values = encoded_values.unsqueeze(1)
             else:
-                encoded_values = torch.zeros(
-                    (0, prop.encoder.get_encoding_length())
-                )
+                encoded_values = torch.zeros((0, prop.encoder.get_encoding_length()))
             if isinstance(prop, p.AtomProperty):
                 x = torch.cat([x, encoded_values], dim=1)
             elif isinstance(prop, p.BondProperty):

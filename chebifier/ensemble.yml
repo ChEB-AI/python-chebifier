@@ -1,0 +1,15 @@
+electra:
+    load_model: electra_chebi50_v241
+resgated:
+    load_model: resgated_chebi50_v241
+chemlog_peptides:
+    type: chemlog_peptides
+    model_weight: 100
+chemlog_element:
+    type: chemlog_element
+    model_weight: 100
+chemlog_organox:
+    type: chemlog_organox
+    model_weight: 100
+c3p:
+    load_model: c3p_with_weights
