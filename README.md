@@ -46,6 +46,7 @@ python -m chebifier predict --smiles-file smiles.txt
 # Make predictions using a configuration file
 python -m chebifier predict --ensemble-config configs/my_config.yml --smiles-file smiles.txt
 
+# Get all available options
 python -m chebifier predict --help
 ```
 
@@ -99,6 +100,7 @@ chebi_lookup:
 to your configuration file.
 
 ### The ensemble
+<img width="700" alt="ensemble_architecture" src="https://github.com/user-attachments/assets/9275d3cd-ac88-466f-a1e9-27d20d67543b" />
 
 Given a sample (i.e., a SMILES string) and models $m_1, m_2, \ldots, m_n$, the ensemble works as follows:
 1. Get predictions from each model $m_i$ for the sample.
@@ -134,7 +136,7 @@ Trust is based on the model's performance on a validation set. After training, w
 on a validation set for each class. If the `ensemble_type` is set to `wmv-f1`, the trust is calculated as 1 + the F1 score.
 If the `ensemble_type` is set to `mv` (the default), the trust is set to 1 for all models.
 
-### Inconsistency correction
+### Inconsistency resolution
 After a decision has been made for each class independently, the consistency of the predictions with regard to the ChEBI hierarchy 
 and disjointness axioms is checked. This is
 done in 3 steps:
