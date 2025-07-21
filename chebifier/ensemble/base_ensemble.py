@@ -200,7 +200,7 @@ class BaseEnsemble:
             )
             if len(predicted_classes) == 0:
                 print(
-                    f"Warning: No classes have been predicted for the given SMILES list."
+                    "Warning: No classes have been predicted for the given SMILES list."
                 )
             # save predictions
             torch.save(ordered_predictions, preds_file)

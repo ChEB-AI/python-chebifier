@@ -1,5 +1,4 @@
 import importlib.resources
-import os
 
 import click
 import yaml
@@ -75,7 +74,7 @@ def predict(
     """Predict ChEBI classes for SMILES strings using an ensemble model."""
     # Load configuration from YAML file
     if not ensemble_config:
-        print(f"Using default ensemble configuration")
+        print("Using default ensemble configuration")
         with (
             importlib.resources.files("chebifier")
             .joinpath("ensemble.yml")

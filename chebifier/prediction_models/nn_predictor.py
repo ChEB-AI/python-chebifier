@@ -76,7 +76,7 @@ class NNPredictor(BasePredictor):
                     )
                     could_not_parse.append(i)
                     continue
-            except Exception as e:
+            except Exception:
                 could_not_parse.append(i)
                 print(
                     f"Model {self.model_name} failed to parse a SMILES string at position {i}: {smiles}"
