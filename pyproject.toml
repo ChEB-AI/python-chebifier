@@ -30,3 +30,6 @@ dependencies = [
 
 [tool.setuptools]
 packages = ["chebifier", "chebifier.ensemble", "chebifier.prediction_models"]
+
+[project.optional-dependencies]
+dev = ["black", "isort", "pre-commit"]

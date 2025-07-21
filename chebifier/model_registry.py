@@ -7,10 +7,13 @@ from chebifier.prediction_models import (
     ChemlogPeptidesPredictor,
     ElectraPredictor,
     ResGatedPredictor,
-    ChEBILookupPredictor
+    ChEBILookupPredictor,
 )
 from chebifier.prediction_models.c3p_predictor import C3PPredictor
-from chebifier.prediction_models.chemlog_predictor import ChemlogXMolecularEntityPredictor, ChemlogOrganoXCompoundPredictor
+from chebifier.prediction_models.chemlog_predictor import (
+    ChemlogXMolecularEntityPredictor,
+    ChemlogOrganoXCompoundPredictor,
+)
 
 ENSEMBLES = {
     "mv": BaseEnsemble,
@@ -26,7 +29,7 @@ MODEL_TYPES = {
     "chebi_lookup": ChEBILookupPredictor,
     "chemlog_element": ChemlogXMolecularEntityPredictor,
     "chemlog_organox": ChemlogOrganoXCompoundPredictor,
-    "c3p": C3PPredictor
+    "c3p": C3PPredictor,
 }
 
 

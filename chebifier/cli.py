@@ -72,19 +72,26 @@ def predict(
     use_confidence,
     resolve_inconsistencies=True,
 ):
-    """Predict ChEBI classes for SMILES strings using an ensemble model.
-        """
+    """Predict ChEBI classes for SMILES strings using an ensemble model."""
     # Load configuration from YAML file
     if not ensemble_config:
         print(f"Using default ensemble configuration")
-        with importlib.resources.files("chebifier").joinpath("ensemble.yml").open("r") as f:
+        with (
+            importlib.resources.files("chebifier")
+            .joinpath("ensemble.yml")
+            .open("r") as f
+        ):
             config = yaml.safe_load(f)
     else:
         print(f"Loading ensemble configuration from {ensemble_config}")
         with open(ensemble_config, "r") as f:
             config = yaml.safe_load(f)
 
-    with importlib.resources.files("chebifier").joinpath("model_registry.yml").open("r") as f:
+    with (
+        importlib.resources.files("chebifier")
+        .joinpath("model_registry.yml")
+        .open("r") as f
+    ):
         model_registry = yaml.safe_load(f)
 
     new_config = {}
@@ -101,7 +108,11 @@ def predict(
     config = new_config
 
     # Instantiate ensemble model
-    ensemble = ENSEMBLES[ensemble_type](config, chebi_version=chebi_version, resolve_inconsistencies=resolve_inconsistencies)
+    ensemble = ENSEMBLES[ensemble_type](
+        config,
+        chebi_version=chebi_version,
+        resolve_inconsistencies=resolve_inconsistencies,
+    )
 
     # Collect SMILES strings from arguments and/or file
     smiles_list = list(smiles)

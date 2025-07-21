@@ -61,7 +61,9 @@ class NNPredictor(BasePredictor):
         index_map = dict()
         for i, smiles in enumerate(smiles_list):
             if not smiles:
-                print(f"Model {self.model_name} received a missing SMILES string at position {i}.")
+                print(
+                    f"Model {self.model_name} received a missing SMILES string at position {i}."
+                )
                 could_not_parse.append(i)
                 continue
             try:
@@ -69,12 +71,16 @@ class NNPredictor(BasePredictor):
                 # This is just for sanity checks
                 rdmol = Chem.MolFromSmiles(smiles, sanitize=False)
                 if rdmol is None:
-                    print(f"Model {self.model_name} received a SMILES string RDKit can't read at position {i}: {smiles}")
+                    print(
+                        f"Model {self.model_name} received a SMILES string RDKit can't read at position {i}: {smiles}"
+                    )
                     could_not_parse.append(i)
                     continue
             except Exception as e:
                 could_not_parse.append(i)
-                print(f"Model {self.model_name} failed to parse a SMILES string at position {i}: {smiles}")
+                print(
+                    f"Model {self.model_name} failed to parse a SMILES string at position {i}: {smiles}"
+                )
                 continue
             index_map[i] = len(token_dicts)
             token_dicts.append(d)

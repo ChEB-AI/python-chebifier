@@ -12,7 +12,12 @@ from chebifier.prediction_models.base_predictor import BasePredictor
 
 class BaseEnsemble:
 
-    def __init__(self, model_configs: dict, chebi_version: int = 241, resolve_inconsistencies: bool = True):
+    def __init__(
+        self,
+        model_configs: dict,
+        chebi_version: int = 241,
+        resolve_inconsistencies: bool = True,
+    ):
         # Deferred Import: To avoid circular import error
         from chebifier.model_registry import MODEL_TYPES
 
@@ -28,13 +33,20 @@ class BaseEnsemble:
             if os.path.isfile(file):
                 self.disjoint_files.append(file)
             else:
-                print(f"Disjoint axiom file {file} not found. Loading from huggingface instead...")
+                print(
+                    f"Disjoint axiom file {file} not found. Loading from huggingface instead..."
+                )
                 from chebifier.hugging_face import download_model_files
-                self.disjoint_files.append(download_model_files({
-                        "repo_id": "chebai/chebifier",
-                        "repo_type": "dataset",
-                        "files": {"disjoint_file": os.path.basename(file)},
-                })["disjoint_file"])
+
+                self.disjoint_files.append(
+                    download_model_files(
+                        {
+                            "repo_id": "chebai/chebifier",
+                            "repo_type": "dataset",
+                            "files": {"disjoint_file": os.path.basename(file)},
+                        }
+                    )["disjoint_file"]
+                )
 
         self.models = []
         self.positive_prediction_threshold = 0.5
@@ -42,6 +54,7 @@ class BaseEnsemble:
             model_cls = MODEL_TYPES[model_config["type"]]
             if "hugging_face" in model_config:
                 from chebifier.hugging_face import download_model_files
+
                 hugging_face_kwargs = download_model_files(model_config["hugging_face"])
             else:
                 hugging_face_kwargs = {}
@@ -49,11 +62,13 @@ class BaseEnsemble:
                 check_package_installed(model_config["package_name"])
 
             model_instance = model_cls(
-                model_name, **model_config, **hugging_face_kwargs, chebi_graph=self.chebi_graph
+                model_name,
+                **model_config,
+                **hugging_face_kwargs,
+                chebi_graph=self.chebi_graph,
             )
             assert isinstance(model_instance, BasePredictor)
             self.models.append(model_instance)
-
 
         if resolve_inconsistencies:
             self.smoother = PredictionSmoother(
@@ -96,7 +111,9 @@ class BaseEnsemble:
 
         return ordered_logits, predicted_classes
 
-    def consolidate_predictions(self, predictions, classwise_weights, predicted_classes, **kwargs):
+    def consolidate_predictions(
+        self, predictions, classwise_weights, predicted_classes, **kwargs
+    ):
         """
         Aggregates predictions from multiple models using weighted majority voting.
         Optimized version using tensor operations instead of for loops.
@@ -152,9 +169,13 @@ class BaseEnsemble:
         if self.smoother is not None:
             self.smoother.set_label_names(class_names)
             smooth_net_score = self.smoother(net_score)
-            class_decisions = (smooth_net_score > 0.5) & has_valid_predictions  # Shape: (num_smiles, num_classes)
+            class_decisions = (
+                smooth_net_score > 0.5
+            ) & has_valid_predictions  # Shape: (num_smiles, num_classes)
         else:
-            class_decisions = (net_score > 0) & has_valid_predictions  # Shape: (num_smiles, num_classes)
+            class_decisions = (
+                net_score > 0
+            ) & has_valid_predictions  # Shape: (num_smiles, num_classes)
         end_time = time.perf_counter()
         print(f"Prediction smoothing took {end_time - start_time:.2f} seconds")
 
@@ -178,7 +199,9 @@ class BaseEnsemble:
                 smiles_list
             )
             if len(predicted_classes) == 0:
-                print(f"Warning: No classes have been predicted for the given SMILES list.")
+                print(
+                    f"Warning: No classes have been predicted for the given SMILES list."
+                )
             # save predictions
             torch.save(ordered_predictions, preds_file)
             with open(predicted_classes_file, "w") as f:
@@ -203,7 +226,14 @@ class BaseEnsemble:
         class_names = list(predicted_classes.keys())
         class_indices = {predicted_classes[cls]: cls for cls in class_names}
         result = [
-            [class_indices[idx.item()] for idx in torch.nonzero(i, as_tuple=True)[0]] if not failure else None
+            (
+                [
+                    class_indices[idx.item()]
+                    for idx in torch.nonzero(i, as_tuple=True)[0]
+                ]
+                if not failure
+                else None
+            )
             for i, failure in zip(class_decisions, is_failure)
         ]
 
@@ -240,7 +270,11 @@ if __name__ == "__main__":
         }
     )
     r = ensemble.predict_smiles_list(
-        ["[NH3+]CCCC[C@H](NC(=O)[C@@H]([NH3+])CC([O-])=O)C([O-])=O", "C[C@H](N)C(=O)NCC(O)=O#", ""],
+        [
+            "[NH3+]CCCC[C@H](NC(=O)[C@@H]([NH3+])CC([O-])=O)C([O-])=O",
+            "C[C@H](N)C(=O)NCC(O)=O#",
+            "",
+        ],
         load_preds_if_possible=False,
     )
     print(len(r), r[0])

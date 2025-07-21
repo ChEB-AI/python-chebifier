@@ -11,7 +11,10 @@ from chemlog.alg_classification.substructure_classifier import (
     is_emericellamide,
 )
 from chemlog.cli import CLASSIFIERS, _smiles_to_mol, strategy_call
-from chemlog_extra.alg_classification.by_element_classification import XMolecularEntityClassifier, OrganoXCompoundClassifier
+from chemlog_extra.alg_classification.by_element_classification import (
+    XMolecularEntityClassifier,
+    OrganoXCompoundClassifier,
+)
 from functools import lru_cache
 
 from .base_predictor import BasePredictor
@@ -42,6 +45,7 @@ AA_DICT = {
     "Y": "L-tyrosine",
 }
 
+
 class ChemlogExtraPredictor(BasePredictor):
 
     CHEMLOG_CLASSIFIER = None
@@ -71,9 +75,11 @@ class ChemlogXMolecularEntityPredictor(ChemlogExtraPredictor):
 
     CHEMLOG_CLASSIFIER = XMolecularEntityClassifier
 
+
 class ChemlogOrganoXCompoundPredictor(ChemlogExtraPredictor):
 
     CHEMLOG_CLASSIFIER = OrganoXCompoundClassifier
+
 
 class ChemlogPeptidesPredictor(BasePredictor):
     def __init__(self, model_name: str, **kwargs):
@@ -96,22 +102,25 @@ class ChemlogPeptidesPredictor(BasePredictor):
         mol = _smiles_to_mol(smiles)
         if mol is None:
             return None
-        pos_labels = [label for label in self.peptide_labels if label in strategy_call(
-            self.strategy, self.classifier_instances, mol
-        )["chebi_classes"]]
+        pos_labels = [
+            label
+            for label in self.peptide_labels
+            if label
+            in strategy_call(self.strategy, self.classifier_instances, mol)[
+                "chebi_classes"
+            ]
+        ]
         if self.chebi_graph:
-            indirect_pos_labels = [str(pr) for label in pos_labels for pr in
-                                   self.chebi_graph.predecessors(int(label))]
+            indirect_pos_labels = [
+                str(pr)
+                for label in pos_labels
+                for pr in self.chebi_graph.predecessors(int(label))
+            ]
             pos_labels = list(set(pos_labels + indirect_pos_labels))
         return {
-                label: (
-                    1
-                    if label
-                       in pos_labels
-                    else 0
-                )
-                for label in self.peptide_labels + pos_labels
-            }
+            label: (1 if label in pos_labels else 0)
+            for label in self.peptide_labels + pos_labels
+        }
 
     def predict_smiles_tuple(self, smiles_list: tuple[str]) -> list:
         results = []
@@ -377,9 +386,12 @@ class ChemlogPeptidesPredictor(BasePredictor):
     def explain_smiles(self, smiles) -> dict:
         info = self.get_chemlog_result_info(smiles)
         zero_blocks = [
-            ("text", "Results for peptides and peptide-related classes (e.g. peptide anion, depsipeptide) have been calculated"
-				" with a rule-based system. The following shows which parts of the molecule were identified as relevant"
-				" structures and have influenced the classification.")
+            (
+                "text",
+                "Results for peptides and peptide-related classes (e.g. peptide anion, depsipeptide) have been calculated"
+                " with a rule-based system. The following shows which parts of the molecule were identified as relevant"
+                " structures and have influenced the classification.",
+            )
         ]
         highlight_blocks = zero_blocks + self.build_explain_blocks_peptides(info)
 
