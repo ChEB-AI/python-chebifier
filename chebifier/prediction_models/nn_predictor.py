@@ -66,7 +66,6 @@ class NNPredictor(BasePredictor):
                 continue
             try:
                 d = self.read_smiles(smiles)
-
                 # This is just for sanity checks
                 rdmol = Chem.MolFromSmiles(smiles, sanitize=False)
                 if rdmol is None:
@@ -76,6 +75,7 @@ class NNPredictor(BasePredictor):
             except Exception as e:
                 could_not_parse.append(i)
                 print(f"Model {self.model_name} failed to parse a SMILES string at position {i}: {smiles}")
+                continue
             index_map[i] = len(token_dicts)
             token_dicts.append(d)
         results = []
