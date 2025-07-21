@@ -1,0 +1,34 @@
+electra_chebi50_v241:
+    type: electra
+    hugging_face:
+      repo_id: chebai/electra_chebi50_v241
+      files:
+        ckpt_path: 14ko0zcf_epoch=193.ckpt
+        target_labels_path: classes.txt
+        classwise_weights_path: metrics_electra_14ko0zcf_80-10-10_short.json
+resgated_chebi50_v241:
+    type: resgated
+    hugging_face:
+      repo_id: chebai/resgated_gcn_chebi50_v241
+      files:
+        ckpt_path: 0ps1g189_epoch=122.ckpt
+        target_labels_path: classes.txt
+        classwise_weights_path: metrics_0ps1g189_80-10-10_short.json
+    molecular_properties:
+      - chebai_graph.preprocessing.properties.AtomType
+      - chebai_graph.preprocessing.properties.NumAtomBonds
+      - chebai_graph.preprocessing.properties.AtomCharge
+      - chebai_graph.preprocessing.properties.AtomAromaticity
+      - chebai_graph.preprocessing.properties.AtomHybridization
+      - chebai_graph.preprocessing.properties.AtomNumHs
+      - chebai_graph.preprocessing.properties.BondType
+      - chebai_graph.preprocessing.properties.BondInRing
+      - chebai_graph.preprocessing.properties.BondAromaticity
+      - chebai_graph.preprocessing.properties.RDKit2DNormalized
+c3p_with_weights:
+  type: c3p
+  hugging_face:
+    repo_id: chebai/chebifier
+    repo_type: dataset
+    files:
+      classwise_weights_path: c3p_trust.json

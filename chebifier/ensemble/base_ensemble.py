@@ -6,32 +6,48 @@ import tqdm
 from chebai.preprocessing.datasets.chebi import ChEBIOver50
 from chebai.result.analyse_sem import PredictionSmoother, get_chebi_graph
 
+from chebifier.check_env import check_package_installed
 from chebifier.prediction_models.base_predictor import BasePredictor
-from functools import lru_cache
+
 
 class BaseEnsemble:
 
-    def __init__(self, model_configs: dict, chebi_version: int = 241):
+    def __init__(self, model_configs: dict, chebi_version: int = 241, resolve_inconsistencies: bool = True):
         # Deferred Import: To avoid circular import error
         from chebifier.model_registry import MODEL_TYPES
 
         self.chebi_dataset = ChEBIOver50(chebi_version=chebi_version)
         self.chebi_dataset._download_required_data()  # download chebi if not already downloaded
         self.chebi_graph = get_chebi_graph(self.chebi_dataset, None)
-        self.disjoint_files = [
+        local_disjoint_files = [
             os.path.join("data", "disjoint_chebi.csv"),
             os.path.join("data", "disjoint_additional.csv"),
         ]
+        self.disjoint_files = []
+        for file in local_disjoint_files:
+            if os.path.isfile(file):
+                self.disjoint_files.append(file)
+            else:
+                print(f"Disjoint axiom file {file} not found. Loading from huggingface instead...")
+                from chebifier.hugging_face import download_model_files
+                self.disjoint_files.append(download_model_files({
+                        "repo_id": "chebai/chebifier",
+                        "repo_type": "dataset",
+                        "files": {"disjoint_file": os.path.basename(file)},
+                })["disjoint_file"])
 
         self.models = []
         self.positive_prediction_threshold = 0.5
         for model_name, model_config in model_configs.items():
             model_cls = MODEL_TYPES[model_config["type"]]
             if "hugging_face" in model_config:
-                from api.hugging_face import download_model_files
+                from chebifier.hugging_face import download_model_files
                 hugging_face_kwargs = download_model_files(model_config["hugging_face"])
             else:
                 hugging_face_kwargs = {}
+            if "package_name" in model_config:
+                check_package_installed(model_config["package_name"])
+
             model_instance = model_cls(
                 model_name, **model_config, **hugging_face_kwargs, chebi_graph=self.chebi_graph
             )
@@ -39,12 +55,14 @@ class BaseEnsemble:
             self.models.append(model_instance)
 
 
-
-        self.smoother = PredictionSmoother(
-            self.chebi_dataset,
-            label_names=None,
-            disjoint_files=self.disjoint_files,
-        )
+        if resolve_inconsistencies:
+            self.smoother = PredictionSmoother(
+                self.chebi_dataset,
+                label_names=None,
+                disjoint_files=self.disjoint_files,
+            )
+        else:
+            self.smoother = None
 
     def gather_predictions(self, smiles_list):
         # get predictions from all models for the SMILES list
@@ -131,14 +149,14 @@ class BaseEnsemble:
         # Smooth predictions
         start_time = time.perf_counter()
         class_names = list(predicted_classes.keys())
-        self.smoother.set_label_names(class_names)
-        smooth_net_score = self.smoother(net_score)
+        if self.smoother is not None:
+            self.smoother.set_label_names(class_names)
+            smooth_net_score = self.smoother(net_score)
+            class_decisions = (smooth_net_score > 0.5) & has_valid_predictions  # Shape: (num_smiles, num_classes)
+        else:
+            class_decisions = (net_score > 0) & has_valid_predictions  # Shape: (num_smiles, num_classes)
         end_time = time.perf_counter()
         print(f"Prediction smoothing took {end_time - start_time:.2f} seconds")
-
-        class_decisions = (
-            smooth_net_score > 0.5
-        ) & has_valid_predictions # Shape: (num_smiles, num_classes)
 
         complete_failure = torch.all(~has_valid_predictions, dim=1)
         return class_decisions, complete_failure
