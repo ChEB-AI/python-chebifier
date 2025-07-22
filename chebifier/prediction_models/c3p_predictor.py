@@ -39,7 +39,7 @@ class C3PPredictor(BasePredictor):
                 chebi_id
             ] = result.is_match
             if result.is_match and self.chebi_graph is not None:
-                for parent in list(self.chebi_graph.predecessors(int(chebi_id))):
+                for parent in list(self.chebi_graph.predecessors(chebi_id)):
                     result_reformatted[smiles_list.index(result.input_smiles)][
                         str(parent)
                     ] = 1

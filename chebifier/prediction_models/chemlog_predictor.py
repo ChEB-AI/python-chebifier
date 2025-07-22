@@ -63,7 +63,7 @@ class ChemlogExtraPredictor(BasePredictor):
                 sample_additions = dict()
                 for cls in sample:
                     if sample[cls] == 1:
-                        successors = list(self.chebi_graph.predecessors(int(cls)))
+                        successors = list(self.chebi_graph.predecessors(cls))
                         if successors:
                             for succ in successors:
                                 sample_additions[str(succ)] = 1
@@ -114,7 +114,7 @@ class ChemlogPeptidesPredictor(BasePredictor):
             indirect_pos_labels = [
                 str(pr)
                 for label in pos_labels
-                for pr in self.chebi_graph.predecessors(int(label))
+                for pr in self.chebi_graph.predecessors(label)
             ]
             pos_labels = list(set(pos_labels + indirect_pos_labels))
         return {
