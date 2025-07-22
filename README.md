@@ -6,6 +6,9 @@ A web application for the ensemble is available at https://chebifier.hastingslab
 
 ## Installation
 
+Note: `chebai-graph` and its dependencies cannot be installed automatically. To install it, follow
+the instructions in the [chebai-graph repository](https://github.com/ChEB-AI/python-chebai-graph). Other dependencies are installed automatically.
+
 You can get the package from PyPI:
 ```bash
 pip install chebifier
@@ -20,9 +23,6 @@ cd python-chebifier
 # Install the package
 pip install -e .
 ```
-
-`chebai-graph` and its dependencies cannot be installed automatically. If you want to use Graph Neural Networks, follow
-the instructions in the [chebai-graph repository](https://github.com/ChEB-AI/python-chebai-graph).
 
 ## Usage
 
