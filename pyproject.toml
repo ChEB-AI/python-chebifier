@@ -25,9 +25,11 @@ dependencies = [
     "rdkit",
     "chebai>=1.0.1",
     "chemlog>=1.0.4",
-    "chemlog_extra @ git+https://github.com/ChEB-AI/chemlog-extra.git",
+    # pypi does not support git dependencies
+    #"chemlog_extra @ git+https://github.com/ChEB-AI/chemlog-extra.git",
+    "c3p"
     # forked version of c3p is windows-compatible
-    "c3p @ git+https://github.com/sfluegel05/c3p.git"
+    #"c3p @ git+https://github.com/sfluegel05/c3p.git"
 ]
 
 

@@ -6,8 +6,13 @@ A web application for the ensemble is available at https://chebifier.hastingslab
 
 ## Installation
 
-Note: `chebai-graph` and its dependencies cannot be installed automatically. To install it, follow
-the instructions in the [chebai-graph repository](https://github.com/ChEB-AI/python-chebai-graph). Other dependencies are installed automatically.
+Not all models can be installed automatically at the moment:
+- `chebai-graph` and its dependencies. To install them, follow
+the instructions in the [chebai-graph repository](https://github.com/ChEB-AI/python-chebai-graph). 
+- `chemlog-extra` can be installed with `pip install git+https://github.com/ChEB-AI/chemlog-extra.git`
+- The automatically installed version of `c3p` may not work under Windows. If you want to run chebifier on Windows, we 
+recommend using this forked version: `pip install git+https://github.com/sfluegel05/c3p.git`
+
 
 You can get the package from PyPI:
 ```bash
