@@ -3,6 +3,7 @@ import os
 import torch
 from pathlib import Path
 
+
 def get_disjoint_groups(disjoint_files):
     if disjoint_files is None:
         disjoint_files = os.path.join("data", "chebi-disjoints.owl")

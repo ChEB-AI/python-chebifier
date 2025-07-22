@@ -6,21 +6,23 @@ import fastobo
 from chebifier.hugging_face import download_model_files
 import pickle
 
+
 def load_chebi_graph(filename=None):
     """Load ChEBI graph from Hugging Face (if filename is None) or local file"""
     if filename is None:
-        print(f"Loading ChEBI graph from Hugging Face...")
+        print("Loading ChEBI graph from Hugging Face...")
         file = download_model_files(
-                {
-                    "repo_id": "chebai/chebifier",
-                    "repo_type": "dataset",
-                    "files": {"f": "chebi_graph.pkl"},
-                }
-            )["f"]
+            {
+                "repo_id": "chebai/chebifier",
+                "repo_type": "dataset",
+                "files": {"f": "chebi_graph.pkl"},
+            }
+        )["f"]
     else:
         print(f"Loading ChEBI graph from local {filename}...")
         file = filename
     return pickle.load(open(file, "rb"))
+
 
 def term_callback(doc):
     """Similar to the chebai function, but reduced to the necessary fields. Also, ChEBI IDs are strings"""
@@ -41,7 +43,7 @@ def term_callback(doc):
                 smiles = clause.raw_value().split('"')[1]
         elif isinstance(clause, fastobo.term.IsAClause):
             chebi_id = str(clause.term)
-            chebi_id = chebi_id[chebi_id.index(":") + 1:]
+            chebi_id = chebi_id[chebi_id.index(":") + 1 :]
             parents.append(chebi_id)
         elif isinstance(clause, fastobo.term.NameClause):
             name = str(clause.name)
@@ -51,13 +53,14 @@ def term_callback(doc):
                 # if the term document contains clause as obsolete as true, skips this document.
                 return False
     chebi_id = str(doc.id)
-    chebi_id = chebi_id[chebi_id.index(":") + 1:]
+    chebi_id = chebi_id[chebi_id.index(":") + 1 :]
     return {
         "id": chebi_id,
         "parents": parents,
         "name": name,
         "smiles": smiles,
     }
+
 
 def build_chebi_graph(chebi_version=241):
     """Creates a networkx graph for the ChEBI hierarchy. Usually, you don't want to call this function directly, but rather use the `load_chebi_graph` function."""
@@ -73,9 +76,9 @@ def build_chebi_graph(chebi_version=241):
     elements = []
     for term_doc in fastobo.loads(chebi):
         if (
-                term_doc
-                and isinstance(term_doc.id, fastobo.id.PrefixedIdent)
-                and term_doc.id.prefix == "CHEBI"
+            term_doc
+            and isinstance(term_doc.id, fastobo.id.PrefixedIdent)
+            and term_doc.id.prefix == "CHEBI"
         ):
             term_dict = term_callback(term_doc)
             if term_dict:
@@ -121,8 +124,8 @@ def get_disjoint_files():
 
 
 if __name__ == "__main__":
-    #chebi_graph = build_chebi_graph(chebi_version=241)
+    # chebi_graph = build_chebi_graph(chebi_version=241)
     # save the graph to a file
-    #pickle.dump(chebi_graph, open("chebi_graph.pkl", "wb"))
+    # pickle.dump(chebi_graph, open("chebi_graph.pkl", "wb"))
     chebi_graph = load_chebi_graph()
     print(chebi_graph)
