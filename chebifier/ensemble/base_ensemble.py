@@ -3,8 +3,8 @@ import time
 
 import torch
 import tqdm
-from chebai.preprocessing.datasets.chebi import ChEBIOver50
-from chebai.result.analyse_sem import PredictionSmoother, get_chebi_graph
+from chebifier.inconsistency_resolution import PredictionSmoother
+from chebifier.utils import load_chebi_graph, get_disjoint_files
 
 from chebifier.check_env import check_package_installed
 from chebifier.prediction_models.base_predictor import BasePredictor
@@ -21,32 +21,8 @@ class BaseEnsemble:
         # Deferred Import: To avoid circular import error
         from chebifier.model_registry import MODEL_TYPES
 
-        self.chebi_dataset = ChEBIOver50(chebi_version=chebi_version)
-        self.chebi_dataset._download_required_data()  # download chebi if not already downloaded
-        self.chebi_graph = get_chebi_graph(self.chebi_dataset, None)
-        local_disjoint_files = [
-            os.path.join("data", "disjoint_chebi.csv"),
-            os.path.join("data", "disjoint_additional.csv"),
-        ]
-        self.disjoint_files = []
-        for file in local_disjoint_files:
-            if os.path.isfile(file):
-                self.disjoint_files.append(file)
-            else:
-                print(
-                    f"Disjoint axiom file {file} not found. Loading from huggingface instead..."
-                )
-                from chebifier.hugging_face import download_model_files
-
-                self.disjoint_files.append(
-                    download_model_files(
-                        {
-                            "repo_id": "chebai/chebifier",
-                            "repo_type": "dataset",
-                            "files": {"disjoint_file": os.path.basename(file)},
-                        }
-                    )["disjoint_file"]
-                )
+        self.chebi_graph = load_chebi_graph()
+        self.disjoint_files = get_disjoint_files()
 
         self.models = []
         self.positive_prediction_threshold = 0.5
@@ -72,7 +48,7 @@ class BaseEnsemble:
 
         if resolve_inconsistencies:
             self.smoother = PredictionSmoother(
-                self.chebi_dataset,
+                self.chebi_graph,
                 label_names=None,
                 disjoint_files=self.disjoint_files,
             )
@@ -203,10 +179,11 @@ class BaseEnsemble:
                     "Warning: No classes have been predicted for the given SMILES list."
                 )
             # save predictions
-            torch.save(ordered_predictions, preds_file)
-            with open(predicted_classes_file, "w") as f:
-                for cls in predicted_classes:
-                    f.write(f"{cls}\n")
+            if load_preds_if_possible:
+                torch.save(ordered_predictions, preds_file)
+                with open(predicted_classes_file, "w") as f:
+                    for cls in predicted_classes:
+                        f.write(f"{cls}\n")
             predicted_classes = {cls: i for i, cls in enumerate(predicted_classes)}
         else:
             print(
