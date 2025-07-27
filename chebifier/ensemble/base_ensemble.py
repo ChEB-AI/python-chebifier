@@ -3,15 +3,15 @@ import time
 
 import torch
 import tqdm
-from chebifier.inconsistency_resolution import PredictionSmoother
-from chebifier.utils import load_chebi_graph, get_disjoint_files
 
 from chebifier.check_env import check_package_installed
+from chebifier.hugging_face import download_model_files
+from chebifier.inconsistency_resolution import PredictionSmoother
 from chebifier.prediction_models.base_predictor import BasePredictor
+from chebifier.utils import get_disjoint_files, load_chebi_graph
 
 
 class BaseEnsemble:
-
     def __init__(
         self,
         model_configs: dict,
@@ -29,8 +29,6 @@ class BaseEnsemble:
         for model_name, model_config in model_configs.items():
             model_cls = MODEL_TYPES[model_config["type"]]
             if "hugging_face" in model_config:
-                from chebifier.hugging_face import download_model_files
-
                 hugging_face_kwargs = download_model_files(model_config["hugging_face"])
             else:
                 hugging_face_kwargs = {}
