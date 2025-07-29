@@ -1,15 +1,11 @@
-import chebai_graph.preprocessing.properties as p
-import torch
-from chebai_graph.models.graph import ResGatedGraphConvNetGraphPred
-from chebai_graph.preprocessing.property_encoder import IndexEncoder, OneHotEncoder
-from chebai_graph.preprocessing.reader import GraphPropertyReader
-from torch_geometric.data.data import Data as GeomData
-
 from .nn_predictor import NNPredictor
 
 
 class ResGatedPredictor(NNPredictor):
     def __init__(self, model_name: str, ckpt_path: str, molecular_properties, **kwargs):
+        from chebai_graph.preprocessing.properties import MolecularProperty
+        from chebai_graph.preprocessing.reader import GraphPropertyReader
+
         super().__init__(
             model_name, ckpt_path, reader_cls=GraphPropertyReader, **kwargs
         )
@@ -23,7 +19,7 @@ class ResGatedPredictor(NNPredictor):
             properties = []
         self.molecular_properties = properties
         assert isinstance(self.molecular_properties, list) and all(
-            isinstance(prop, p.MolecularProperty) for prop in self.molecular_properties
+            isinstance(prop, MolecularProperty) for prop in self.molecular_properties
         )
         print(f"Initialised GNN model {self.model_name} (device: {self.device})")
 
@@ -32,7 +28,12 @@ class ResGatedPredictor(NNPredictor):
         module = __import__(module_path, fromlist=[class_name])
         return getattr(module, class_name)
 
-    def init_model(self, ckpt_path: str, **kwargs) -> ResGatedGraphConvNetGraphPred:
+    def init_model(
+        self, ckpt_path: str, **kwargs
+    ) -> "ResGatedGraphConvNetGraphPred":  # noqa: F821
+        import torch
+        from chebai_graph.models.graph import ResGatedGraphConvNetGraphPred
+
         model = ResGatedGraphConvNetGraphPred.load_from_checkpoint(
             ckpt_path,
             map_location=torch.device(self.device),
@@ -45,6 +46,14 @@ class ResGatedPredictor(NNPredictor):
         return model
 
     def read_smiles(self, smiles):
+        import torch
+        from chebai_graph.preprocessing.properties import AtomProperty, BondProperty
+        from chebai_graph.preprocessing.property_encoder import (
+            IndexEncoder,
+            OneHotEncoder,
+        )
+        from torch_geometric.data.data import Data as GeomData
+
         reader = self.reader_cls()
         d = reader.to_data(dict(features=smiles, labels=None))
         geom_data = d["features"]
@@ -87,9 +96,9 @@ class ResGatedPredictor(NNPredictor):
                     encoded_values = encoded_values.unsqueeze(1)
             else:
                 encoded_values = torch.zeros((0, prop.encoder.get_encoding_length()))
-            if isinstance(prop, p.AtomProperty):
+            if isinstance(prop, AtomProperty):
                 x = torch.cat([x, encoded_values], dim=1)
-            elif isinstance(prop, p.BondProperty):
+            elif isinstance(prop, BondProperty):
                 edge_attr = torch.cat([edge_attr, encoded_values], dim=1)
             else:
                 molecule_attr = torch.cat([molecule_attr, encoded_values[0]], dim=1)
