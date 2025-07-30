@@ -8,6 +8,7 @@ from rdkit import Chem
 import json
 from chebifier.utils import load_chebi_graph
 
+
 class ChEBILookupPredictor(BasePredictor):
 
     def __init__(
