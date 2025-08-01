@@ -84,10 +84,12 @@ class PerSmilesPerModelLRUCache:
                     new_results, Iterable
                 ), "Function must return an  Iterable."
                 # Save to cache and append
-                for smiles, prediction in zip(missing_smiles, new_results):
+                for smiles, prediction, missing_idx in zip(
+                    missing_smiles, new_results, missing_indices
+                ):
                     if prediction is not None:
                         self.set(smiles, model_name, prediction)
-                    results.append((missing_indices.pop(0), prediction))
+                    results.append((missing_idx, prediction))
 
             # Reorder results to match original indices
             results.sort(key=lambda x: x[0])  # sort by index
@@ -131,43 +133,3 @@ class PerSmilesPerModelLRUCache:
                         self._cache = loaded
             except Exception as e:
                 print(f"[Cache Load Error] {e}")
-
-
-if __name__ == "__main__":
-    # cache will persist across runs in "cache.pkl"
-    cache = PerSmilesPerModelLRUCache(max_size=50)
-
-    class ExamplePredictor:
-        model_name = "example_model"
-
-        @cache.batch_decorator
-        def predict(self, smiles_list: tuple[str]) -> list[dict]:
-            # Simulate a prediction function
-            return [{"prediction": hash(smiles) % 100} for smiles in smiles_list]
-
-    # Create an instance of the predictor
-    predictor = ExamplePredictor()
-
-    # Prediction set 1 — new model, all should be cache misses
-    predictor.model_name = "example_model"
-    predictor.predict(["CCC", "C", "CCO", "CCN"])  # MISS × 4
-    print("Cache Stats:", cache.stats())
-
-    # Prediction set 2 — same model, partial hit/miss
-    predictor.model_name = "example_model"
-    predictor.predict(["CCC", "CO", "CCO", "CN"])  # HIT: CCC, CCO — MISS: CO, CN
-    print("Cache Stats:", cache.stats())
-
-    # Prediction set 3 — new model, same SMILES — should all be misses (per-model caching)
-    predictor.model_name = "example_model_2"
-    predictor.predict(["CCC", "C", "CO", "CN"])  # MISS × 4 (new model)
-    print("Cache Stats:", cache.stats())
-
-    # Prediction set 4 — another model
-    predictor.model_name = "example_model_3"
-    predictor.predict(["CCCC", "CCCl", "CCBr", "C(C)C"])  # MISS × 4
-    print("Cache Stats:", cache.stats())
-
-    from pprint import pprint
-
-    pprint(cache)
