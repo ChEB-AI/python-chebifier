@@ -1,16 +1,16 @@
-from functools import lru_cache
+import json
+import os
 from typing import Optional
 
-from chebifier.prediction_models import BasePredictor
-import os
 import networkx as nx
 from rdkit import Chem
-import json
+
+from chebifier import modelwise_smiles_lru_cache
+from chebifier.prediction_models import BasePredictor
 from chebifier.utils import load_chebi_graph
 
 
 class ChEBILookupPredictor(BasePredictor):
-
     def __init__(
         self,
         model_name: str,
@@ -67,7 +67,6 @@ class ChEBILookupPredictor(BasePredictor):
                     )
         return smiles_lookup
 
-    @lru_cache(maxsize=100)
     def predict_smiles(self, smiles: str) -> Optional[dict]:
         if not smiles:
             return None
@@ -94,7 +93,8 @@ class ChEBILookupPredictor(BasePredictor):
         else:
             return None
 
-    def predict_smiles_tuple(self, smiles_list: list[str]) -> list:
+    @modelwise_smiles_lru_cache.batch_decorator
+    def predict_smiles_list(self, smiles_list: list[str]) -> list:
         predictions = []
         for smiles in smiles_list:
             predictions.append(self.predict_smiles(smiles))
@@ -145,7 +145,8 @@ if __name__ == "__main__":
     # Example usage
     smiles_list = [
         "CCO",
-        "C1=CC=CC=C1" "*C(=O)OC[C@H](COP(=O)([O-])OCC[N+](C)(C)C)OC(*)=O",
+        "C1=CC=CC=C1",
+        "*C(=O)OC[C@H](COP(=O)([O-])OCC[N+](C)(C)C)OC(*)=O",
     ]  # SMILES with 251 matches in ChEBI
     predictions = predictor.predict_smiles_list(smiles_list)
     print(predictions)

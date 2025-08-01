@@ -92,6 +92,9 @@ class PerSmilesPerModelLRUCache:
             # Reorder results to match original indices
             results.sort(key=lambda x: x[0])  # sort by index
             ordered = [result for _, result in results]
+            assert len(ordered) == len(
+                smiles_list
+            ), "Result length does not match input length."
             return ordered
 
         return wrapper
