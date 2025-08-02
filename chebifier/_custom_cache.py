@@ -112,18 +112,22 @@ class PerSmilesPerModelLRUCache:
             model_name = getattr(instance, "model_name", None)
             assert model_name is not None, "Instance must have a model_name attribute."
 
-            results: list[tuple[int, Any]] = []
             missing_smiles: list[str] = []
             missing_indices: list[int] = []
+            ordered_results: list[Any] = [None] * len(smiles_list)
 
             # First: try to fetch all from cache
-            for i, smiles in enumerate(smiles_list):
-                result = self.get(smiles=smiles, model_name=model_name)
-                if result is not None:
-                    results.append((i, result))  # save index for reordering
+            for idx, smiles in enumerate(smiles_list):
+                prediction = self.get(smiles=smiles, model_name=model_name)
+                if prediction is not None:
+                    # For debugging purposes, you can uncomment the print statement below
+                    # print(
+                    #     f"[Cache Hit] Prediction for smiles: {smiles} and model: {model_name} are retrieved from cache."
+                    # )
+                    ordered_results[idx] = prediction
                 else:
                     missing_smiles.append(smiles)
-                    missing_indices.append(i)
+                    missing_indices.append(idx)
 
             # If some are missing, call original function
             if missing_smiles:
@@ -138,15 +142,9 @@ class PerSmilesPerModelLRUCache:
                 ):
                     if prediction is not None:
                         self.set(smiles, model_name, prediction)
-                    results.append((missing_idx, prediction))
+                    ordered_results[missing_idx] = prediction
 
-            # Reorder results to match original indices
-            results.sort(key=lambda x: x[0])  # sort by index
-            ordered = [result for _, result in results]
-            assert len(ordered) == len(
-                smiles_list
-            ), "Result length does not match input length."
-            return ordered
+            return ordered_results
 
         return wrapper
 
