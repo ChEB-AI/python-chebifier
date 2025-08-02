@@ -8,17 +8,28 @@ g_cache = PerSmilesPerModelLRUCache(max_size=100, persist_path=None)
 
 
 class DummyPredictor:
-    def __init__(self, model_name):
+    def __init__(self, model_name: str):
+        """
+        Dummy predictor for testing cache decorator.
+        :param model_name: Name of the model instance (used for key separation).
+        """
         self.model_name = model_name
 
     @g_cache.batch_decorator
-    def predict(self, smiles_list: tuple[str]):
+    def predict(self, smiles_list: tuple[str]) -> list[str]:
+        """
+        Dummy predict method to simulate model inference.
+        Returns list of predictions with predictable format.
+        """
         # Simple predictable dummy function for tests
         return [f"{self.model_name}_P{i}" for i in range(len(smiles_list))]
 
 
 class TestPerSmilesPerModelLRUCache(unittest.TestCase):
-    def setUp(self):
+    def setUp(self) -> None:
+        """
+        Set up a temporary cache file and cache instance before each test.
+        """
         # Create temp file for persistence tests
         self.temp_file = tempfile.NamedTemporaryFile(delete=False)
         self.temp_file.close()
@@ -26,11 +37,17 @@ class TestPerSmilesPerModelLRUCache(unittest.TestCase):
             max_size=3, persist_path=self.temp_file.name
         )
 
-    def tearDown(self):
+    def tearDown(self) -> None:
+        """
+        Clean up the temporary file after each test.
+        """
         if os.path.exists(self.temp_file.name):
             os.remove(self.temp_file.name)
 
-    def test_cache_miss_and_set_get(self):
+    def test_cache_miss_and_set_get(self) -> None:
+        """
+        Test cache miss on initial get, then set and confirm hit.
+        """
         # Initially empty
         self.assertEqual(len(self.cache), 0)
         self.assertIsNone(self.cache.get("CCC", "model1"))
@@ -41,7 +58,10 @@ class TestPerSmilesPerModelLRUCache(unittest.TestCase):
         self.assertEqual(self.cache.hits, 1)
         self.assertEqual(self.cache.misses, 1)  # One miss from first get
 
-    def test_cache_eviction(self):
+    def test_cache_eviction(self) -> None:
+        """
+        Test LRU eviction when capacity is exceeded.
+        """
         self.cache.set("a", "m", "v1")
         self.cache.set("b", "m", "v2")
         self.cache.set("c", "m", "v3")
@@ -52,7 +72,13 @@ class TestPerSmilesPerModelLRUCache(unittest.TestCase):
         self.assertIsNone(self.cache.get("a", "m"))  # 'a' evicted
         self.assertIsNotNone(self.cache.get("d", "m"))  # 'd' present
 
-    def test_batch_decorator_hits_and_misses(self):
+    def test_batch_decorator_hits_and_misses(self) -> None:
+        """
+        Test decorator behavior on batch prediction:
+        - first call (all misses)
+        - second call (mixed hits and misses)
+        - third call (more hits and misses)
+        """
         predictor = DummyPredictor("modelA")
         predictor2 = DummyPredictor("modelB")
 
@@ -120,7 +146,10 @@ class TestPerSmilesPerModelLRUCache(unittest.TestCase):
             stats_after_third["misses"], 14
         )  # additional 3 misses for GGG, HHH, ZZZ
 
-    def test_persistence_save_and_load(self):
+    def test_persistence_save_and_load(self) -> None:
+        """
+        Test that cache is properly saved to disk and reloaded.
+        """
         # Set some values
         self.cache.set("sm1", "modelX", "val1")
         self.cache.set("sm2", "modelX", "val2")
@@ -137,7 +166,10 @@ class TestPerSmilesPerModelLRUCache(unittest.TestCase):
         self.assertEqual(new_cache.get("sm1", "modelX"), "val1")
         self.assertEqual(new_cache.get("sm2", "modelX"), "val2")
 
-    def test_clear_cache(self):
+    def test_clear_cache(self) -> None:
+        """
+        Test clearing the cache and removing persisted file.
+        """
         self.cache.set("x", "m", "v")
         self.cache.save()
         self.assertTrue(os.path.exists(self.temp_file.name))
