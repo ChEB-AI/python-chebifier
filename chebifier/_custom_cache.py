@@ -125,7 +125,11 @@ class PerSmilesPerModelLRUCache:
 
     def _load_cache(self) -> None:
         """Load the cache from disk."""
-        if os.path.exists(self._persist_path):
+        if (
+            self._persist_path
+            and os.path.exists(self._persist_path)
+            and os.path.getsize(self._persist_path) > 0
+        ):
             try:
                 with open(self._persist_path, "rb") as f:
                     loaded = pickle.load(f)

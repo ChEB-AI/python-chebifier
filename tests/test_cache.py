@@ -4,7 +4,7 @@ import unittest
 
 from chebifier import PerSmilesPerModelLRUCache
 
-g_cache = PerSmilesPerModelLRUCache(max_size=3)
+g_cache = PerSmilesPerModelLRUCache(max_size=100, persist_path=None)
 
 
 class DummyPredictor:
@@ -14,7 +14,7 @@ class DummyPredictor:
     @g_cache.batch_decorator
     def predict(self, smiles_list: tuple[str]):
         # Simple predictable dummy function for tests
-        return [f"{self.model_name}{i}" for i in range(len(smiles_list))]
+        return [f"{self.model_name}_P{i}" for i in range(len(smiles_list))]
 
 
 class TestPerSmilesPerModelLRUCache(unittest.TestCase):
@@ -73,30 +73,52 @@ class TestPerSmilesPerModelLRUCache(unittest.TestCase):
             ["modelB_P0", "modelB_P1", "modelB_P2", "modelB_P3", "modelB_P4"],
         )
         stats_after_first = g_cache.stats()
-        self.assertEqual(stats_after_first["misses"], 3)
+        self.assertEqual(
+            stats_after_first["misses"], 10
+        )  # 5 for modelA and 5 for modelB
+        self.assertEqual(stats_after_first["hits"], 0)
+        self.assertEqual(len(g_cache), 10)  # 5 for each model
 
-        # cache = {("AAA", "modelA"): "modelA_P0", ("BBB", "modelA"): "modelA_P1", ("CCC", "modelA"): "modelA_P2"}
+        # cache = {("AAA", "modelA"): "modelA_P0", ("BBB", "modelA"): "modelA_P1", ("CCC", "modelA"): "modelA_P2",
+        # ("DDD", "modelA"): "modelA_P3", ("EEE", "modelA"): "modelA_P4",
+        # ("AAA", "modelB"): "modelB_P0", ("BBB", "modelB"): "modelB_P1", ("CCC", "modelB"): "modelB_P2",}
+        # ("DDD", "modelB"): "modelB_P3", ("EEE", "modelB"): "modelB_P4"}
+
         # Second call with some hits and some misses
         results2 = predictor.predict(["FFF", "DDD"])
-        # AAA from cache
-        # FFF is not in cache, so it predicted, hence it has P0 as its the only one passed to prediction function
-        # and dummy predictor returns iterates over the smiles list and return P{idx} corresponding to the index
-        self.assertListEqual(results2, ["P3", "P0"])
+        # DDD from cache
+        # FFF is not in cache, so its predicted, hence it has P0 as its the only one passed to prediction function
+        # and dummy predictor iterates over the smiles list and returns P{idx} corresponding to the index
+        self.assertListEqual(results2, ["modelA_P0", "modelA_P3"])
         stats_after_second = g_cache.stats()
-        self.assertEqual(stats_after_second["hits"], 1)
-        self.assertEqual(stats_after_second["misses"], 4)
+        self.assertEqual(stats_after_second["hits"], 1)  # additional 1 hit for DDD
+        self.assertEqual(stats_after_second["misses"], 11)  # 1 miss for FFF
 
-        # cache = {("AAA", "modelA"): "P0", ("BBB", "modelA"): "P1", ("CCC", "modelA"): "P2",
-        # ("DDD", "modelA"): "P3", ("EEE", "modelA"): "P4", ("FFF", "modelA"): "P0"}
+        # cache = {("AAA", "modelA"): "modelA_P0", ("BBB", "modelA"): "modelA_P1", ("CCC", "modelA"): "modelA_P2",
+        # ("DDD", "modelA"): "modelA_P3", ("EEE", "modelA"): "modelA_P4", ("FFF", "modelA"): "modelA_P0", ...}
 
         # Third call with some hits and some misses
         results3 = predictor.predict(["EEE", "GGG", "DDD", "HHH", "BBB", "ZZZ"])
         # Here, predictions for [EEE, DDD, BBB] are retrived from cache,
         # while [GGG, HHH, ZZZ] are not in cache and hence passe to the prediction function
-        self.assertListEqual(results3, ["P4", "P0", "P3", "P0", "P1", "P0"])
+        self.assertListEqual(
+            results3,
+            [
+                "modelA_P4",  # EEE from cache
+                "modelA_P0",  # GGG not in cache, so it predicted, hence it has P0 as its the only one passed to prediction function
+                "modelA_P3",  # DDD from cache
+                "modelA_P1",  # HHH not in cache, so it predicted, hence it has P1 as its the only one passed to prediction function
+                "modelA_P1",  # BBB from cache
+                "modelA_P2",  # ZZZ not in cache, so it predicted, hence it has P2 as its the only one passed to prediction function
+            ],
+        )
         stats_after_third = g_cache.stats()
-        self.assertEqual(stats_after_third["hits"], 1)
-        self.assertEqual(stats_after_third["misses"], 4)
+        self.assertEqual(
+            stats_after_third["hits"], 4
+        )  # additional 3 hits for EEE, DDD, BBB
+        self.assertEqual(
+            stats_after_third["misses"], 14
+        )  # additional 3 misses for GGG, HHH, ZZZ
 
     def test_persistence_save_and_load(self):
         # Set some values
