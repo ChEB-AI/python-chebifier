@@ -16,21 +16,15 @@ class ChEBILookupPredictor(BasePredictor):
         chebi_version: int = 241,
         **kwargs,
     ):
+        from chebifier.utils import load_chebi_graph
+
         super().__init__(model_name, **kwargs)
         self._description = (
             description
             or "ChEBI Lookup: If the SMILES is equivalent to a ChEBI entry, retrieve the classification of that entry."
         )
         self.chebi_version = chebi_version
-        self.chebi_graph = kwargs.get("chebi_graph", None)
-        if self.chebi_graph is None:
-            from chebai.preprocessing.datasets.chebi import ChEBIOver50
-
-            self.chebi_dataset = ChEBIOver50(chebi_version=self.chebi_version)
-            self.chebi_dataset._download_required_data()
-            self.chebi_graph = self.chebi_dataset._extract_class_hierarchy(
-                os.path.join(self.chebi_dataset.raw_dir, "chebi.obo")
-            )
+        self.chebi_graph = kwargs.get("chebi_graph", load_chebi_graph())
         self.lookup_table = self.get_smiles_lookup()
 
     def get_smiles_lookup(self):
