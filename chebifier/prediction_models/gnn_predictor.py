@@ -33,7 +33,7 @@ class ResGatedPredictor(NNPredictor):
         module = __import__(module_path, fromlist=[class_name])
         return getattr(module, class_name)
 
-    def init_model(self, ckpt_path: str, **kwargs) -> ResGatedGraphConvNetGraphPred:
+    def init_model(self, ckpt_path: str, **kwargs) -> "ResGatedGraphConvNetGraphPred":
         import torch
         from chebai_graph.models.graph import ResGatedGraphConvNetGraphPred
 
