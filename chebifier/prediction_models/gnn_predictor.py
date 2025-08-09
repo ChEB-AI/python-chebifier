@@ -1,4 +1,9 @@
+from typing import TYPE_CHECKING
+
 from .nn_predictor import NNPredictor
+
+if TYPE_CHECKING:
+    from chebai_graph.models.graph import ResGatedGraphConvNetGraphPred
 
 
 class ResGatedPredictor(NNPredictor):
@@ -28,9 +33,7 @@ class ResGatedPredictor(NNPredictor):
         module = __import__(module_path, fromlist=[class_name])
         return getattr(module, class_name)
 
-    def init_model(
-        self, ckpt_path: str, **kwargs
-    ) -> "ResGatedGraphConvNetGraphPred":  # noqa: F821
+    def init_model(self, ckpt_path: str, **kwargs) -> ResGatedGraphConvNetGraphPred:
         import torch
         from chebai_graph.models.graph import ResGatedGraphConvNetGraphPred
 

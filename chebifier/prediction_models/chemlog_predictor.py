@@ -1,21 +1,7 @@
+from functools import lru_cache
 from typing import Optional
 
 import tqdm
-from chemlog.alg_classification.charge_classifier import get_charge_category
-from chemlog.alg_classification.peptide_size_classifier import get_n_amino_acid_residues
-from chemlog.alg_classification.proteinogenics_classifier import (
-    get_proteinogenic_amino_acids,
-)
-from chemlog.alg_classification.substructure_classifier import (
-    is_diketopiperazine,
-    is_emericellamide,
-)
-from chemlog.cli import CLASSIFIERS, _smiles_to_mol, strategy_call
-from chemlog_extra.alg_classification.by_element_classification import (
-    XMolecularEntityClassifier,
-    OrganoXCompoundClassifier,
-)
-from functools import lru_cache
 
 from .base_predictor import BasePredictor
 
@@ -47,15 +33,14 @@ AA_DICT = {
 
 
 class ChemlogExtraPredictor(BasePredictor):
-
-    CHEMLOG_CLASSIFIER = None
-
     def __init__(self, model_name: str, **kwargs):
         super().__init__(model_name, **kwargs)
         self.chebi_graph = kwargs.get("chebi_graph", None)
-        self.classifier = self.CHEMLOG_CLASSIFIER()
+        self.classifier = None
 
     def predict_smiles_tuple(self, smiles_list: tuple[str]) -> list:
+        from chemlog.cli import _smiles_to_mol
+
         mol_list = [_smiles_to_mol(smiles) for smiles in smiles_list]
         res = self.classifier.classify(mol_list)
         if self.chebi_graph is not None:
@@ -72,17 +57,29 @@ class ChemlogExtraPredictor(BasePredictor):
 
 
 class ChemlogXMolecularEntityPredictor(ChemlogExtraPredictor):
+    def __init__(self, model_name: str, **kwargs):
+        from chemlog_extra.alg_classification.by_element_classification import (
+            XMolecularEntityClassifier,
+        )
 
-    CHEMLOG_CLASSIFIER = XMolecularEntityClassifier
+        super().__init__(model_name, **kwargs)
+        self.classifier = XMolecularEntityClassifier()
 
 
 class ChemlogOrganoXCompoundPredictor(ChemlogExtraPredictor):
+    def __init__(self, model_name: str, **kwargs):
+        from chemlog_extra.alg_classification.by_element_classification import (
+            OrganoXCompoundClassifier,
+        )
 
-    CHEMLOG_CLASSIFIER = OrganoXCompoundClassifier
+        super().__init__(model_name, **kwargs)
+        self.classifier = OrganoXCompoundClassifier()
 
 
 class ChemlogPeptidesPredictor(BasePredictor):
     def __init__(self, model_name: str, **kwargs):
+        from chemlog.cli import CLASSIFIERS
+
         super().__init__(model_name, **kwargs)
         self.strategy = "algo"
         self.chebi_graph = kwargs.get("chebi_graph", None)
@@ -99,6 +96,8 @@ class ChemlogPeptidesPredictor(BasePredictor):
 
     @lru_cache(maxsize=100)
     def predict_smiles(self, smiles: str) -> Optional[dict]:
+        from chemlog.cli import _smiles_to_mol, strategy_call
+
         mol = _smiles_to_mol(smiles)
         if mol is None:
             return None
@@ -134,6 +133,19 @@ class ChemlogPeptidesPredictor(BasePredictor):
 
     def get_chemlog_result_info(self, smiles):
         """Get classification for single molecule with additional information."""
+        from chemlog.alg_classification.charge_classifier import get_charge_category
+        from chemlog.alg_classification.peptide_size_classifier import (
+            get_n_amino_acid_residues,
+        )
+        from chemlog.alg_classification.proteinogenics_classifier import (
+            get_proteinogenic_amino_acids,
+        )
+        from chemlog.alg_classification.substructure_classifier import (
+            is_diketopiperazine,
+            is_emericellamide,
+        )
+        from chemlog.cli import _smiles_to_mol
+
         mol = _smiles_to_mol(smiles)
         if mol is None or not smiles:
             return {"error": "Failed to parse SMILES"}

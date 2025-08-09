@@ -1,15 +1,14 @@
+import json
+import os
 from functools import lru_cache
 from typing import Optional
 
-from chebifier.prediction_models import BasePredictor
-import os
-import networkx as nx
 from rdkit import Chem
-import json
+
+from chebifier.prediction_models import BasePredictor
 
 
 class ChEBILookupPredictor(BasePredictor):
-
     def __init__(
         self,
         model_name: str,
@@ -49,6 +48,8 @@ class ChEBILookupPredictor(BasePredictor):
         return smiles_lookup
 
     def build_smiles_lookup(self):
+        import networkx as nx
+
         smiles_lookup = dict()
         for chebi_id, smiles in nx.get_node_attributes(
             self.chebi_graph, "smiles"
@@ -152,7 +153,8 @@ if __name__ == "__main__":
     # Example usage
     smiles_list = [
         "CCO",
-        "C1=CC=CC=C1" "*C(=O)OC[C@H](COP(=O)([O-])OCC[N+](C)(C)C)OC(*)=O",
+        "C1=CC=CC=C1",
+        "*C(=O)OC[C@H](COP(=O)([O-])OCC[N+](C)(C)C)OC(*)=O",
     ]  # SMILES with 251 matches in ChEBI
     predictions = predictor.predict_smiles_list(smiles_list)
     print(predictions)
