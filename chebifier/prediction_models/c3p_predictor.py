@@ -26,7 +26,7 @@ class C3PPredictor(BasePredictor):
         
     @modelwise_smiles_lru_cache.batch_decorator
     def predict_smiles_list(self, smiles_list: list[str]) -> list:
-      from c3p import classifier as c3p_classifier
+        from c3p import classifier as c3p_classifier
         result_list = c3p_classifier.classify(
             list(smiles_list),
             self.program_directory,
