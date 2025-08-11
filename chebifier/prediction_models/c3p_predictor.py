@@ -23,10 +23,11 @@ class C3PPredictor(BasePredictor):
         self.program_directory = program_directory
         self.chemical_classes = chemical_classes
         self.chebi_graph = kwargs.get("chebi_graph", None)
-        
+
     @modelwise_smiles_lru_cache.batch_decorator
     def predict_smiles_list(self, smiles_list: list[str]) -> list:
         from c3p import classifier as c3p_classifier
+
         result_list = c3p_classifier.classify(
             list(smiles_list),
             self.program_directory,
