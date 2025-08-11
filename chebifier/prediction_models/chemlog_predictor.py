@@ -55,7 +55,7 @@ class ChemlogExtraPredictor(BasePredictor):
         self.chebi_graph = kwargs.get("chebi_graph", None)
         self.classifier = self.CHEMLOG_CLASSIFIER()
 
-    def predict_smiles_tuple(self, smiles_list: tuple[str]) -> list:
+    def predict_smiles_list(self, smiles_list: list[str]) -> list:
         mol_list = [_smiles_to_mol(smiles) for smiles in smiles_list]
         res = self.classifier.classify(mol_list)
         if self.chebi_graph is not None:
