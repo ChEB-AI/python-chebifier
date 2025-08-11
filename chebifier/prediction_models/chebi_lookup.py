@@ -1,9 +1,12 @@
 import json
 import os
-from functools import lru_cache
 from typing import Optional
 
 from rdkit import Chem
+
+from chebifier import modelwise_smiles_lru_cache
+from chebifier.prediction_models import BasePredictor
+from chebifier.utils import load_chebi_graph
 
 from chebifier.prediction_models import BasePredictor
 
@@ -69,7 +72,6 @@ class ChEBILookupPredictor(BasePredictor):
                     )
         return smiles_lookup
 
-    @lru_cache(maxsize=100)
     def predict_smiles(self, smiles: str) -> Optional[dict]:
         if not smiles:
             return None
@@ -96,7 +98,8 @@ class ChEBILookupPredictor(BasePredictor):
         else:
             return None
 
-    def predict_smiles_tuple(self, smiles_list: list[str]) -> list:
+    @modelwise_smiles_lru_cache.batch_decorator
+    def predict_smiles_list(self, smiles_list: list[str]) -> list:
         predictions = []
         for smiles in smiles_list:
             predictions.append(self.predict_smiles(smiles))

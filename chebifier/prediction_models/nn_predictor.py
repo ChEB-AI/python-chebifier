@@ -1,8 +1,8 @@
-from functools import lru_cache
-
 import numpy as np
 import tqdm
 from rdkit import Chem
+
+from chebifier import modelwise_smiles_lru_cache
 
 from .base_predictor import BasePredictor
 
@@ -53,8 +53,8 @@ class NNPredictor(BasePredictor):
         d = reader.to_data(dict(features=smiles, labels=None))
         return d
 
-    @lru_cache(maxsize=100)
-    def predict_smiles_tuple(self, smiles_list: tuple[str]) -> list:
+    @modelwise_smiles_lru_cache.batch_decorator
+    def predict_smiles_list(self, smiles_list: list[str]) -> list:
         """Returns a list with the length of smiles_list, each element is either None (=failure) or a dictionary
         Of classes and predicted values."""
         import torch
