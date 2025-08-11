@@ -1,9 +1,9 @@
-from functools import lru_cache
 from typing import Optional
 
 import tqdm
 
 from .base_predictor import BasePredictor
+from .. import modelwise_smiles_lru_cache
 
 AA_DICT = {
     "A": "L-alanine",
@@ -33,7 +33,7 @@ AA_DICT = {
 
 
 class ChemlogExtraPredictor(BasePredictor):
-  
+
     def __init__(self, model_name: str, **kwargs):
         super().__init__(model_name, **kwargs)
         self.chebi_graph = kwargs.get("chebi_graph", None)
@@ -42,6 +42,7 @@ class ChemlogExtraPredictor(BasePredictor):
     @modelwise_smiles_lru_cache.batch_decorator
     def predict_smiles_list(self, smiles_list: list[str]) -> list:
         from chemlog.cli import _smiles_to_mol
+
         mol_list = [_smiles_to_mol(smiles) for smiles in smiles_list]
         res = self.classifier.classify(mol_list)
         if self.chebi_graph is not None:
