@@ -55,6 +55,7 @@ class ChemlogExtraPredictor(BasePredictor):
         self.chebi_graph = kwargs.get("chebi_graph", None)
         self.classifier = self.CHEMLOG_CLASSIFIER()
 
+    @modelwise_smiles_lru_cache.batch_decorator
     def predict_smiles_list(self, smiles_list: list[str]) -> list:
         mol_list = [_smiles_to_mol(smiles) for smiles in smiles_list]
         res = self.classifier.classify(mol_list)
