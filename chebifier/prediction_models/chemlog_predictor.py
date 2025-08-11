@@ -12,10 +12,11 @@ from chemlog.alg_classification.substructure_classifier import (
 )
 from chemlog.cli import CLASSIFIERS, _smiles_to_mol, strategy_call
 from chemlog_extra.alg_classification.by_element_classification import (
-    XMolecularEntityClassifier,
     OrganoXCompoundClassifier,
+    XMolecularEntityClassifier,
 )
-from functools import lru_cache
+
+from chebifier import modelwise_smiles_lru_cache
 
 from .base_predictor import BasePredictor
 
@@ -47,7 +48,6 @@ AA_DICT = {
 
 
 class ChemlogExtraPredictor(BasePredictor):
-
     CHEMLOG_CLASSIFIER = None
 
     def __init__(self, model_name: str, **kwargs):
@@ -55,7 +55,8 @@ class ChemlogExtraPredictor(BasePredictor):
         self.chebi_graph = kwargs.get("chebi_graph", None)
         self.classifier = self.CHEMLOG_CLASSIFIER()
 
-    def predict_smiles_tuple(self, smiles_list: tuple[str]) -> list:
+    @modelwise_smiles_lru_cache.batch_decorator
+    def predict_smiles_list(self, smiles_list: list[str]) -> list:
         mol_list = [_smiles_to_mol(smiles) for smiles in smiles_list]
         res = self.classifier.classify(mol_list)
         if self.chebi_graph is not None:
@@ -72,12 +73,10 @@ class ChemlogExtraPredictor(BasePredictor):
 
 
 class ChemlogXMolecularEntityPredictor(ChemlogExtraPredictor):
-
     CHEMLOG_CLASSIFIER = XMolecularEntityClassifier
 
 
 class ChemlogOrganoXCompoundPredictor(ChemlogExtraPredictor):
-
     CHEMLOG_CLASSIFIER = OrganoXCompoundClassifier
 
 
@@ -97,7 +96,6 @@ class ChemlogPeptidesPredictor(BasePredictor):
         # fmt: on
         print(f"Initialised ChemLog model {self.model_name}")
 
-    @lru_cache(maxsize=100)
     def predict_smiles(self, smiles: str) -> Optional[dict]:
         mol = _smiles_to_mol(smiles)
         if mol is None:
@@ -122,7 +120,8 @@ class ChemlogPeptidesPredictor(BasePredictor):
             for label in self.peptide_labels + pos_labels
         }
 
-    def predict_smiles_tuple(self, smiles_list: tuple[str]) -> list:
+    @modelwise_smiles_lru_cache.batch_decorator
+    def predict_smiles_list(self, smiles_list: list[str]) -> list:
         results = []
         for i, smiles in tqdm.tqdm(enumerate(smiles_list)):
             results.append(self.predict_smiles(smiles))

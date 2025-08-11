@@ -1,9 +1,9 @@
-from functools import lru_cache
-from typing import Optional, List
 from pathlib import Path
+from typing import List, Optional
 
 from c3p import classifier as c3p_classifier
 
+from chebifier import modelwise_smiles_lru_cache
 from chebifier.prediction_models import BasePredictor
 
 
@@ -24,8 +24,8 @@ class C3PPredictor(BasePredictor):
         self.chemical_classes = chemical_classes
         self.chebi_graph = kwargs.get("chebi_graph", None)
 
-    @lru_cache(maxsize=100)
-    def predict_smiles_tuple(self, smiles_list: tuple[str]) -> list:
+    @modelwise_smiles_lru_cache.batch_decorator
+    def predict_smiles_list(self, smiles_list: list[str]) -> list:
         result_list = c3p_classifier.classify(
             list(smiles_list),
             self.program_directory,
