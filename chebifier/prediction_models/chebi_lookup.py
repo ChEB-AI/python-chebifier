@@ -9,7 +9,6 @@ from chebifier.prediction_models import BasePredictor
 from chebifier.utils import load_chebi_graph
 
 
-
 class ChEBILookupPredictor(BasePredictor):
     def __init__(
         self,
