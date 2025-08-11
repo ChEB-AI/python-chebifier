@@ -1,8 +1,6 @@
 from pathlib import Path
 from typing import List, Optional
 
-from c3p import classifier as c3p_classifier
-
 from chebifier import modelwise_smiles_lru_cache
 from chebifier.prediction_models import BasePredictor
 

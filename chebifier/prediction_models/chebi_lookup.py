@@ -8,7 +8,6 @@ from chebifier import modelwise_smiles_lru_cache
 from chebifier.prediction_models import BasePredictor
 from chebifier.utils import load_chebi_graph
 
-from chebifier.prediction_models import BasePredictor
 
 
 class ChEBILookupPredictor(BasePredictor):
@@ -19,7 +18,6 @@ class ChEBILookupPredictor(BasePredictor):
         chebi_version: int = 241,
         **kwargs,
     ):
-        from chebifier.utils import load_chebi_graph
 
         super().__init__(model_name, **kwargs)
         self._description = (
