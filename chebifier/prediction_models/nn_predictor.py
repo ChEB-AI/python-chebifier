@@ -1,5 +1,4 @@
 import numpy as np
-import torch
 import tqdm
 from rdkit import Chem
 
@@ -17,6 +16,8 @@ class NNPredictor(BasePredictor):
         target_labels_path: str,
         **kwargs,
     ):
+        import torch
+
         super().__init__(model_name, **kwargs)
         self.reader_cls = reader_cls
 
@@ -56,6 +57,8 @@ class NNPredictor(BasePredictor):
     def predict_smiles_list(self, smiles_list: list[str]) -> list:
         """Returns a list with the length of smiles_list, each element is either None (=failure) or a dictionary
         Of classes and predicted values."""
+        import torch
+
         token_dicts = []
         could_not_parse = []
         index_map = dict()

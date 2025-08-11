@@ -2,7 +2,6 @@ import json
 import os
 from typing import Optional
 
-import networkx as nx
 from rdkit import Chem
 
 from chebifier import modelwise_smiles_lru_cache
@@ -18,6 +17,7 @@ class ChEBILookupPredictor(BasePredictor):
         chebi_version: int = 241,
         **kwargs,
     ):
+
         super().__init__(model_name, **kwargs)
         self._description = (
             description
@@ -42,6 +42,8 @@ class ChEBILookupPredictor(BasePredictor):
         return smiles_lookup
 
     def build_smiles_lookup(self):
+        import networkx as nx
+
         smiles_lookup = dict()
         for chebi_id, smiles in nx.get_node_attributes(
             self.chebi_graph, "smiles"

@@ -1,8 +1,11 @@
+from typing import TYPE_CHECKING
+
 import numpy as np
-from chebai.models.electra import Electra
-from chebai.preprocessing.reader import EMBEDDING_OFFSET, ChemDataReader
 
 from .nn_predictor import NNPredictor
+
+if TYPE_CHECKING:
+    from chebai.models.electra import Electra
 
 
 def build_graph_from_attention(att, node_labels, token_labels, threshold=0.0):
@@ -37,10 +40,14 @@ def build_graph_from_attention(att, node_labels, token_labels, threshold=0.0):
 
 class ElectraPredictor(NNPredictor):
     def __init__(self, model_name: str, ckpt_path: str, **kwargs):
+        from chebai.preprocessing.reader import ChemDataReader
+
         super().__init__(model_name, ckpt_path, reader_cls=ChemDataReader, **kwargs)
         print(f"Initialised Electra model {self.model_name} (device: {self.device})")
 
-    def init_model(self, ckpt_path: str, **kwargs) -> Electra:
+    def init_model(self, ckpt_path: str, **kwargs) -> "Electra":
+        from chebai.models.electra import Electra
+
         model = Electra.load_from_checkpoint(
             ckpt_path,
             map_location=self.device,
@@ -53,6 +60,8 @@ class ElectraPredictor(NNPredictor):
         return model
 
     def explain_smiles(self, smiles) -> dict:
+        from chebai.preprocessing.reader import EMBEDDING_OFFSET
+
         reader = self.reader_cls()
         token_dict = reader.to_data(dict(features=smiles, labels=None))
         tokens = np.array(token_dict["features"]).astype(int).tolist()

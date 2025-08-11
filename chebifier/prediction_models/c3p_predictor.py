@@ -1,8 +1,6 @@
 from pathlib import Path
 from typing import List, Optional
 
-from c3p import classifier as c3p_classifier
-
 from chebifier import modelwise_smiles_lru_cache
 from chebifier.prediction_models import BasePredictor
 
@@ -26,6 +24,8 @@ class C3PPredictor(BasePredictor):
 
     @modelwise_smiles_lru_cache.batch_decorator
     def predict_smiles_list(self, smiles_list: list[str]) -> list:
+        from c3p import classifier as c3p_classifier
+
         result_list = c3p_classifier.classify(
             list(smiles_list),
             self.program_directory,
@@ -50,6 +50,8 @@ class C3PPredictor(BasePredictor):
         C3P provides natural language explanations for each prediction (positive or negative). Since there are more
         than 300 classes, only take the positive ones.
         """
+        from c3p import classifier as c3p_classifier
+
         highlights = []
         result_list = c3p_classifier.classify(
             [smiles], self.program_directory, self.chemical_classes, strict=False
