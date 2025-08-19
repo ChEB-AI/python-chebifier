@@ -1,8 +1,11 @@
+import importlib.resources
 import os
 
 import networkx as nx
 import requests
 import fastobo
+import yaml
+
 from chebifier.hugging_face import download_model_files
 import pickle
 
@@ -129,3 +132,12 @@ if __name__ == "__main__":
     # pickle.dump(chebi_graph, open("chebi_graph.pkl", "wb"))
     chebi_graph = load_chebi_graph()
     print(chebi_graph)
+
+
+def get_default_configs():
+    with (
+        importlib.resources.files("chebifier")
+            .joinpath("ensemble.yml")
+            .open("r") as f
+    ):
+        return yaml.safe_load(f)

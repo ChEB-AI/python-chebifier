@@ -4,6 +4,7 @@ import click
 import yaml
 
 from chebifier.model_registry import ENSEMBLES
+from chebifier.utils import get_default_configs
 
 
 @click.group()
@@ -75,12 +76,7 @@ def predict(
     # Load configuration from YAML file
     if not ensemble_config:
         print("Using default ensemble configuration")
-        with (
-            importlib.resources.files("chebifier")
-            .joinpath("ensemble.yml")
-            .open("r") as f
-        ):
-            config = yaml.safe_load(f)
+        config = get_default_configs()
     else:
         print(f"Loading ensemble configuration from {ensemble_config}")
         with open(ensemble_config, "r") as f:

@@ -1,23 +1,33 @@
 import os
 import time
+from pathlib import Path
+from typing import Union
 
 import torch
 import tqdm
+import yaml
 
 from chebifier.check_env import check_package_installed
 from chebifier.hugging_face import download_model_files
 from chebifier.inconsistency_resolution import PredictionSmoother
 from chebifier.prediction_models.base_predictor import BasePredictor
-from chebifier.utils import get_disjoint_files, load_chebi_graph
+from chebifier.utils import get_disjoint_files, load_chebi_graph, get_default_configs
 
 
 class BaseEnsemble:
     def __init__(
         self,
-        model_configs: dict,
+        model_configs: Union[str, Path, dict, None] = None,
         chebi_version: int = 241,
         resolve_inconsistencies: bool = True,
     ):
+        if model_configs is None:
+            model_configs = get_default_configs()
+        elif isinstance(model_configs, (str, Path)):
+            # Load configuration from YAML file
+            with open(model_configs) as file:
+                model_configs = yaml.safe_load(file)
+
         # Deferred Import: To avoid circular import error
         from chebifier.model_registry import MODEL_TYPES
 
