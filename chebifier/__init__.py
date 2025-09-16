@@ -2,7 +2,7 @@
 # even if multiple subpackages are imported later.
 
 from ._custom_cache import PerSmilesPerModelLRUCache, modelwise_smiles_lru_cache
-from chebifier.ensemble.base_ensemble import BaseEnsemble
+from .ensemble.base_ensemble import BaseEnsemble
 
 __all__ = [
     "BaseEnsemble",
