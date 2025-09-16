@@ -6,6 +6,11 @@ from collections.abc import Iterable
 from functools import wraps
 from typing import Any, Callable
 
+__all__ = [
+    "PerSmilesPerModelLRUCache",
+    "modelwise_smiles_lru_cache",
+]
+
 
 class PerSmilesPerModelLRUCache:
     """
@@ -206,3 +211,6 @@ class PerSmilesPerModelLRUCache:
                         self._cache = loaded
             except Exception as e:
                 print(f"[Cache Load Error] {e}")
+
+
+modelwise_smiles_lru_cache = PerSmilesPerModelLRUCache(max_size=100)

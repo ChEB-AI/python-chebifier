@@ -1,10 +1,13 @@
+import importlib.resources
 import os
+import pickle
 
+import fastobo
 import networkx as nx
 import requests
-import fastobo
+import yaml
+
 from chebifier.hugging_face import download_model_files
-import pickle
 
 
 def load_chebi_graph(filename=None):
@@ -123,9 +126,27 @@ def get_disjoint_files():
     return disjoint_files
 
 
-if __name__ == "__main__":
-    # chebi_graph = build_chebi_graph(chebi_version=241)
-    # save the graph to a file
-    # pickle.dump(chebi_graph, open("chebi_graph.pkl", "wb"))
-    chebi_graph = load_chebi_graph()
-    print(chebi_graph)
+def get_default_configs():
+    default_config_name = "ensemble.yml"
+    print(f"Using default ensemble configuration from {default_config_name}")
+    with (
+        importlib.resources.files("chebifier")
+        .joinpath(default_config_name)
+        .open("r") as f
+    ):
+        return yaml.safe_load(f)
+
+
+def process_config(config, model_registry):
+    new_config = {}
+    for model_name, entry in config.items():
+        if "load_model" in entry:
+            if entry["load_model"] not in model_registry:
+                raise ValueError(
+                    f"Model {entry['load_model']} not found in model registry. "
+                    f"Available models are: {','.join(model_registry.keys())}."
+                )
+            new_config[model_name] = {**model_registry[entry["load_model"]], **entry}
+        else:
+            new_config[model_name] = entry
+    return new_config

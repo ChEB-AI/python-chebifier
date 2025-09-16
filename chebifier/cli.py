@@ -1,7 +1,4 @@
-import importlib.resources
-
 import click
-import yaml
 
 from chebifier.model_registry import ENSEMBLES
 
@@ -72,43 +69,10 @@ def predict(
     resolve_inconsistencies=True,
 ):
     """Predict ChEBI classes for SMILES strings using an ensemble model."""
-    # Load configuration from YAML file
-    if not ensemble_config:
-        print("Using default ensemble configuration")
-        with (
-            importlib.resources.files("chebifier")
-            .joinpath("ensemble.yml")
-            .open("r") as f
-        ):
-            config = yaml.safe_load(f)
-    else:
-        print(f"Loading ensemble configuration from {ensemble_config}")
-        with open(ensemble_config, "r") as f:
-            config = yaml.safe_load(f)
-
-    with (
-        importlib.resources.files("chebifier")
-        .joinpath("model_registry.yml")
-        .open("r") as f
-    ):
-        model_registry = yaml.safe_load(f)
-
-    new_config = {}
-    for model_name, entry in config.items():
-        if "load_model" in entry:
-            if entry["load_model"] not in model_registry:
-                raise ValueError(
-                    f"Model {entry['load_model']} not found in model registry. "
-                    f"Available models are: {','.join(model_registry.keys())}."
-                )
-            new_config[model_name] = {**model_registry[entry["load_model"]], **entry}
-        else:
-            new_config[model_name] = entry
-    config = new_config
 
     # Instantiate ensemble model
     ensemble = ENSEMBLES[ensemble_type](
-        config,
+        ensemble_config,
         chebi_version=chebi_version,
         resolve_inconsistencies=resolve_inconsistencies,
     )

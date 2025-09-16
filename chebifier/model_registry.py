@@ -4,15 +4,15 @@ from chebifier.ensemble.weighted_majority_ensemble import (
     WMVwithPPVNPVEnsemble,
 )
 from chebifier.prediction_models import (
+    ChEBILookupPredictor,
     ChemlogPeptidesPredictor,
     ElectraPredictor,
     ResGatedPredictor,
-    ChEBILookupPredictor,
 )
 from chebifier.prediction_models.c3p_predictor import C3PPredictor
 from chebifier.prediction_models.chemlog_predictor import (
-    ChemlogXMolecularEntityPredictor,
     ChemlogOrganoXCompoundPredictor,
+    ChemlogXMolecularEntityPredictor,
 )
 
 ENSEMBLES = {

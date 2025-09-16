@@ -75,15 +75,11 @@ python -m chebifier predict --help
 You can also use the package programmatically:
 
 ```python
-from chebifier.ensemble.base_ensemble import BaseEnsemble
-import yaml
+from chebifier import BaseEnsemble
 
-# Load configuration from YAML file
-with open('configs/example_config.yml', 'r') as f:
-    config = yaml.safe_load(f)
-
-# Instantiate ensemble model
-ensemble = BaseEnsemble(config)
+# Instantiate ensemble model. If desired, can pass
+# a path to a configuration, like 'configs/example_config.yml'
+ensemble = BaseEnsemble()
 
 # Make predictions
 smiles_list = ["CC(=O)OC1=CC=CC=C1C(=O)O", "C1=CC=C(C=C1)C(=O)O"]
