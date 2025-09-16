@@ -1,7 +1,8 @@
 import csv
 import os
-import torch
 from pathlib import Path
+
+import torch
 
 
 def get_disjoint_groups(disjoint_files):

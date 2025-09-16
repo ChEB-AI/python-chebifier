@@ -1,13 +1,13 @@
 import importlib.resources
 import os
+import pickle
 
+import fastobo
 import networkx as nx
 import requests
-import fastobo
 import yaml
 
 from chebifier.hugging_face import download_model_files
-import pickle
 
 
 def load_chebi_graph(filename=None):
@@ -131,8 +131,8 @@ def get_default_configs():
     print(f"Using default ensemble configuration from {default_config_name}")
     with (
         importlib.resources.files("chebifier")
-            .joinpath(default_config_name)
-            .open("r") as f
+        .joinpath(default_config_name)
+        .open("r") as f
     ):
         return yaml.safe_load(f)
 

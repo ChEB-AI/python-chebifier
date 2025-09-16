@@ -1,3 +1,4 @@
+import importlib
 import os
 import time
 from pathlib import Path
@@ -6,13 +7,17 @@ from typing import Union
 import torch
 import tqdm
 import yaml
-import importlib
 
 from chebifier.check_env import check_package_installed
 from chebifier.hugging_face import download_model_files
 from chebifier.inconsistency_resolution import PredictionSmoother
 from chebifier.prediction_models.base_predictor import BasePredictor
-from chebifier.utils import get_disjoint_files, load_chebi_graph, get_default_configs, process_config
+from chebifier.utils import (
+    get_default_configs,
+    get_disjoint_files,
+    load_chebi_graph,
+    process_config,
+)
 
 
 class BaseEnsemble:
@@ -37,8 +42,8 @@ class BaseEnsemble:
 
         with (
             importlib.resources.files("chebifier")
-                    .joinpath("model_registry.yml")
-                    .open("r") as f
+            .joinpath("model_registry.yml")
+            .open("r") as f
         ):
             model_registry = yaml.safe_load(f)
 

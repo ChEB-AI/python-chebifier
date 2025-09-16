@@ -1,9 +1,7 @@
-import importlib.resources
-
 import click
-import yaml
 
 from chebifier.model_registry import ENSEMBLES
+
 
 @click.group()
 def cli():
