@@ -1,7 +1,7 @@
 import json
 from abc import ABC
 
-from chebifier import modelwise_smiles_lru_cache
+from .._custom_cache import modelwise_smiles_lru_cache
 
 
 class BasePredictor(ABC):
