@@ -6,12 +6,13 @@ from typing import Union
 import torch
 import tqdm
 import yaml
+import importlib
 
 from chebifier.check_env import check_package_installed
 from chebifier.hugging_face import download_model_files
 from chebifier.inconsistency_resolution import PredictionSmoother
 from chebifier.prediction_models.base_predictor import BasePredictor
-from chebifier.utils import get_disjoint_files, load_chebi_graph, get_default_configs
+from chebifier.utils import get_disjoint_files, load_chebi_graph, get_default_configs, process_config
 
 
 class BaseEnsemble:
@@ -21,22 +22,34 @@ class BaseEnsemble:
         chebi_version: int = 241,
         resolve_inconsistencies: bool = True,
     ):
-        if model_configs is None:
-            model_configs = get_default_configs()
-        elif isinstance(model_configs, (str, Path)):
-            # Load configuration from YAML file
-            with open(model_configs) as file:
-                model_configs = yaml.safe_load(file)
-
         # Deferred Import: To avoid circular import error
         from chebifier.model_registry import MODEL_TYPES
+
+        # Load configuration from YAML file
+        if not model_configs:
+            config = get_default_configs()
+        elif isinstance(model_configs, dict):
+            config = model_configs
+        else:
+            print(f"Loading ensemble configuration from {model_configs}")
+            with open(model_configs, "r") as f:
+                config = yaml.safe_load(f)
+
+        with (
+            importlib.resources.files("chebifier")
+                    .joinpath("model_registry.yml")
+                    .open("r") as f
+        ):
+            model_registry = yaml.safe_load(f)
+
+        processed_configs = process_config(config, model_registry)
 
         self.chebi_graph = load_chebi_graph()
         self.disjoint_files = get_disjoint_files()
 
         self.models = []
         self.positive_prediction_threshold = 0.5
-        for model_name, model_config in model_configs.items():
+        for model_name, model_config in processed_configs.items():
             model_cls = MODEL_TYPES[model_config["type"]]
             if "hugging_face" in model_config:
                 hugging_face_kwargs = download_model_files(model_config["hugging_face"])
