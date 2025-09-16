@@ -75,7 +75,7 @@ python -m chebifier predict --help
 You can also use the package programmatically:
 
 ```python
-from chebifier import BaseEnsemble
+from chebifier.ensemble.base_ensemble import BaseEnsemble
 
 # Instantiate ensemble model. If desired, can pass
 # a path to a configuration, like 'configs/example_config.yml'
