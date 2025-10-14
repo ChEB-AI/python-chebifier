@@ -75,6 +75,8 @@ class ResGatedPredictor(NNPredictor):
         return model
 
     def read_smiles(self, smiles):
+        from chebai_graph.preprocessing.datasets.chebi import GraphPropAsPerNodeType
+
         d = self.dataset.READER().to_data(dict(features=smiles, labels=None))
         property_data = d
         # TODO merge props into base should not be a method of a dataset (or at least static)
@@ -90,9 +92,13 @@ class ResGatedPredictor(NNPredictor):
                 if len(encoded_value.shape) == 3:
                     encoded_value = encoded_value.squeeze(0)
             property_data[property.name] = encoded_value
-        d["features"] = self.dataset._merge_props_into_base(
-            property_data, max_len_node_properties=self.model.gnn.in_channels
-        )
+        # Augmented graphs need an additional argument
+        if isinstance(self.dataset, GraphPropAsPerNodeType):
+            d["features"] = self.dataset._merge_props_into_base(
+                property_data, max_len_node_properties=self.model.gnn.in_channels
+            )
+        else:
+            d["features"] = self.dataset._merge_props_into_base(property_data)
         return d
 
 
