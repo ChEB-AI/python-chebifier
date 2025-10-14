@@ -32,6 +32,7 @@ def term_callback(doc):
     parents = []
     name = None
     smiles = None
+    subset = None
     for clause in doc:
         if isinstance(clause, fastobo.term.PropertyValueClause):
             t = clause.property_value
@@ -50,7 +51,8 @@ def term_callback(doc):
             parents.append(chebi_id)
         elif isinstance(clause, fastobo.term.NameClause):
             name = str(clause.name)
-
+        elif isinstance(clause, fastobo.term.SubsetClause):
+            subset = str(clause.subset)
         if isinstance(clause, fastobo.term.IsObsoleteClause):
             if clause.obsolete:
                 # if the term document contains clause as obsolete as true, skips this document.
@@ -62,6 +64,7 @@ def term_callback(doc):
         "parents": parents,
         "name": name,
         "smiles": smiles,
+        "subset": subset,
     }
 
 
