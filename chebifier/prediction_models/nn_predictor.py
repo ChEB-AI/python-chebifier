@@ -20,6 +20,7 @@ class NNPredictor(BasePredictor):
 
         super().__init__(model_name, **kwargs)
         self.reader_cls = reader_cls
+        self.reader = reader_cls()
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = self.init_model(ckpt_path=ckpt_path)
@@ -49,8 +50,7 @@ class NNPredictor(BasePredictor):
             yield cache
 
     def read_smiles(self, smiles):
-        reader = self.reader_cls()
-        d = reader.to_data(dict(features=smiles, labels=None))
+        d = self.reader.to_data(dict(features=smiles, labels=None))
         return d
 
     @modelwise_smiles_lru_cache.batch_decorator

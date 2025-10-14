@@ -83,7 +83,7 @@ class BaseEnsemble:
 
     def gather_predictions(self, smiles_list):
         # get predictions from all models for the SMILES list
-        # order them by alphabetically by label class
+        # order them alphabetically by label class
         model_predictions = []
         predicted_classes = set()
         for model in self.models:
