@@ -11,6 +11,7 @@ from chebifier.prediction_models import (
 )
 from chebifier.prediction_models.c3p_predictor import C3PPredictor
 from chebifier.prediction_models.chemlog_predictor import (
+    ChemlogAllPredictor,
     ChemlogOrganoXCompoundPredictor,
     ChemlogXMolecularEntityPredictor,
 )
@@ -27,6 +28,7 @@ MODEL_TYPES = {
     "electra": ElectraPredictor,
     "resgated": ResGatedPredictor,
     "gat": GATPredictor,
+    "chemlog": ChemlogAllPredictor,
     "chemlog_peptides": ChemlogPeptidesPredictor,
     "chebi_lookup": ChEBILookupPredictor,
     "chemlog_element": ChemlogXMolecularEntityPredictor,
