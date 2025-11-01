@@ -1,5 +1,4 @@
 import importlib
-import os
 import time
 from pathlib import Path
 from typing import Union
@@ -24,8 +23,9 @@ class BaseEnsemble:
     def __init__(
         self,
         model_configs: Union[str, Path, dict, None] = None,
-        chebi_version: int = 241,
         resolve_inconsistencies: bool = True,
+        verbose_output: bool = False,
+        use_confidence: bool = True,
     ):
         # Deferred Import: To avoid circular import error
         from chebifier.model_registry import MODEL_TYPES
@@ -48,6 +48,8 @@ class BaseEnsemble:
             model_registry = yaml.safe_load(f)
 
         processed_configs = process_config(config, model_registry)
+        self.verbose_output = verbose_output
+        self.use_confidence = use_confidence
 
         self.chebi_graph = load_chebi_graph()
         self.disjoint_files = get_disjoint_files()
@@ -92,7 +94,8 @@ class BaseEnsemble:
                 if logits_for_smiles is not None:
                     for cls in logits_for_smiles:
                         predicted_classes.add(cls)
-        print(f"Sorting predictions from {len(model_predictions)} models...")
+        if self.verbose_output:
+            print(f"Sorting predictions from {len(model_predictions)} models...")
         predicted_classes = sorted(list(predicted_classes))
         predicted_classes_dict = {cls: i for i, cls in enumerate(predicted_classes)}
         ordered_logits = (
@@ -114,7 +117,11 @@ class BaseEnsemble:
         return ordered_logits, predicted_classes
 
     def consolidate_predictions(
-        self, predictions, classwise_weights, predicted_classes, **kwargs
+        self,
+        predictions,
+        classwise_weights,
+        return_intermediate_results=False,
+        **kwargs,
     ):
         """
         Aggregates predictions from multiple models using weighted majority voting.
@@ -137,7 +144,9 @@ class BaseEnsemble:
             predictions < self.positive_prediction_threshold
         ) & valid_predictions
 
-        if "use_confidence" in kwargs and kwargs["use_confidence"]:
+        # if use_confidence is passed in kwargs, it overrides the ensemble setting
+        use_confidence = kwargs.get("use_confidence", self.use_confidence)
+        if use_confidence:
             confidence = 2 * torch.abs(
                 predictions.nan_to_num() - self.positive_prediction_threshold
             )
@@ -164,10 +173,27 @@ class BaseEnsemble:
 
         # Determine which classes to include for each SMILES
         net_score = positive_sum - negative_sum  # Shape: (num_smiles, num_classes)
+        if return_intermediate_results:
+            return (
+                net_score,
+                has_valid_predictions,
+                {
+                    "positive_mask": positive_mask,
+                    "negative_mask": negative_mask,
+                    "confidence": confidence,
+                    "positive_sum": positive_sum,
+                    "negative_sum": negative_sum,
+                },
+            )
 
+        return net_score, has_valid_predictions
+
+    def apply_inconsistency_resolution(
+        self, net_score, class_names, has_valid_predictions
+    ):
+        # todo - this could be more elegant
         # Smooth predictions
         start_time = time.perf_counter()
-        class_names = list(predicted_classes.keys())
         if self.smoother is not None:
             self.smoother.set_label_names(class_names)
             smooth_net_score = self.smoother(net_score)
@@ -179,7 +205,8 @@ class BaseEnsemble:
                 net_score > 0
             ) & has_valid_predictions  # Shape: (num_smiles, num_classes)
         end_time = time.perf_counter()
-        print(f"Prediction smoothing took {end_time - start_time:.2f} seconds")
+        if self.verbose_output:
+            print(f"Prediction smoothing took {end_time - start_time:.2f} seconds")
 
         complete_failure = torch.all(~has_valid_predictions, dim=1)
         return class_decisions, complete_failure
@@ -192,38 +219,28 @@ class BaseEnsemble:
         return positive_weights, negative_weights
 
     def predict_smiles_list(
-        self, smiles_list, load_preds_if_possible=False, **kwargs
+        self, smiles_list, return_intermediate_results=False, **kwargs
     ) -> list:
-        preds_file = f"predictions_by_model_{'_'.join(model.model_name for model in self.models)}.pt"
-        predicted_classes_file = f"predicted_classes_{'_'.join(model.model_name for model in self.models)}.txt"
-        if not load_preds_if_possible or not os.path.isfile(preds_file):
-            ordered_predictions, predicted_classes = self.gather_predictions(
-                smiles_list
-            )
-            if len(predicted_classes) == 0:
-                print(
-                    "Warning: No classes have been predicted for the given SMILES list."
-                )
-            # save predictions
-            if load_preds_if_possible:
-                torch.save(ordered_predictions, preds_file)
-                with open(predicted_classes_file, "w") as f:
-                    for cls in predicted_classes:
-                        f.write(f"{cls}\n")
-            predicted_classes = {cls: i for i, cls in enumerate(predicted_classes)}
-        else:
-            print(
-                f"Loading predictions from {preds_file} and label indexes from {predicted_classes_file}"
-            )
-            ordered_predictions = torch.load(preds_file)
-            with open(predicted_classes_file, "r") as f:
-                predicted_classes = {
-                    line.strip(): i for i, line in enumerate(f.readlines())
-                }
+        ordered_predictions, predicted_classes = self.gather_predictions(smiles_list)
+        if len(predicted_classes) == 0:
+            print("Warning: No classes have been predicted for the given SMILES list.")
+        predicted_classes = {cls: i for i, cls in enumerate(predicted_classes)}
 
         classwise_weights = self.calculate_classwise_weights(predicted_classes)
-        class_decisions, is_failure = self.consolidate_predictions(
-            ordered_predictions, classwise_weights, predicted_classes, **kwargs
+        if return_intermediate_results:
+            net_score, has_valid_predictions, intermediate_results_dict = (
+                self.consolidate_predictions(
+                    ordered_predictions,
+                    classwise_weights,
+                    return_intermediate_results=return_intermediate_results,
+                )
+            )
+        else:
+            net_score, has_valid_predictions = self.consolidate_predictions(
+                ordered_predictions, classwise_weights
+            )
+        class_decisions, is_failure = self.apply_inconsistency_resolution(
+            net_score, list(predicted_classes.keys()), has_valid_predictions
         )
 
         class_names = list(predicted_classes.keys())
@@ -239,6 +256,11 @@ class BaseEnsemble:
             )
             for i, failure in zip(class_decisions, is_failure)
         ]
+        if return_intermediate_results:
+            intermediate_results_dict["predicted_classes"] = predicted_classes
+            intermediate_results_dict["classwise_weights"] = classwise_weights
+            intermediate_results_dict["net_score"] = net_score
+            return result, intermediate_results_dict
 
         return result
 
