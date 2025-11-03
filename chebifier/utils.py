@@ -97,7 +97,8 @@ def build_chebi_graph(chebi_version=241):
     # Only take the edges which connect the existing nodes, to avoid internal creation of obsolete nodes
     # https://github.com/ChEB-AI/python-chebai/pull/55#issuecomment-2386654142
     g.add_edges_from(
-        [(p, q["id"]) for q in elements for p in q["parents"] if g.has_node(p)]
+        [(p, q["id"]) for q in elements for p in q["parents"] if g.has_node(p)],
+        label="direct_child",
     )
     return nx.transitive_closure_dag(g)
 
@@ -153,3 +154,12 @@ def process_config(config, model_registry):
         else:
             new_config[model_name] = entry
     return new_config
+
+
+if __name__ == "__main__":
+    chebi_graph = build_chebi_graph(chebi_version=244)
+    os.makedirs(os.path.join("data", "chebi_v244"), exist_ok=True)
+    pickle.dump(
+        chebi_graph,
+        open(os.path.join("data", "chebi_v244", "chebi_graph.pkl"), "wb"),
+    )
