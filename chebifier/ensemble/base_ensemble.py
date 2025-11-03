@@ -79,6 +79,7 @@ class BaseEnsemble:
                 self.chebi_graph,
                 label_names=None,
                 disjoint_files=self.disjoint_files,
+                verbose=self.verbose_output,
             )
         else:
             self.smoother = None
@@ -191,14 +192,13 @@ class BaseEnsemble:
     def apply_inconsistency_resolution(
         self, net_score, class_names, has_valid_predictions
     ):
-        # todo - this could be more elegant
         # Smooth predictions
         start_time = time.perf_counter()
         if self.smoother is not None:
             self.smoother.set_label_names(class_names)
             smooth_net_score = self.smoother(net_score)
             class_decisions = (
-                smooth_net_score > 0.5
+                smooth_net_score > 0
             ) & has_valid_predictions  # Shape: (num_smiles, num_classes)
         else:
             class_decisions = (

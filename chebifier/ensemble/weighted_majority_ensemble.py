@@ -9,10 +9,10 @@ class WMVwithPPVNPVEnsemble(BaseEnsemble):
         self, config_path=None, weighting_strength=0.5, weighting_exponent=1.0, **kwargs
     ):
         """WMV ensemble that weights models based on their class-wise positive / negative predictive values. For each class, the weight is calculated as:
-        weight = weighting_strength * PPV + (1 - weighting_strength)
+        weight = (weighting_strength * PPV + (1 - weighting_strength)) ** weighting_exponent
         where PPV is the class-specific positive predictive value of the model on the validation set
         or (if the prediction is negative):
-        weight = weighting_strength * NPV + (1 - weighting_strength)
+        weight = (weighting_strength * NPV + (1 - weighting_strength)) ** weighting_exponent
         where NPV is the class-specific negative predictive value of the model on the validation set.
         """
         super().__init__(config_path, **kwargs)
@@ -60,7 +60,7 @@ class WMVwithF1Ensemble(BaseEnsemble):
         self, config_path=None, weighting_strength=0.5, weighting_exponent=1.0, **kwargs
     ):
         """WMV ensemble that weights models based on their class-wise F1 scores. For each class, the weight is calculated as:
-        weight = model_weight * (weighting_strength * F1 + (1 - weighting_strength))
+        weight = model_weight * (weighting_strength * F1 + (1 - weighting_strength)) ** weighting_exponent
         where F1 is the class-specific F1 score ("trust") of the model on the validation set.
         """
         super().__init__(config_path, **kwargs)

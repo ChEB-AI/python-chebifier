@@ -56,10 +56,13 @@ def get_disjoint_groups(disjoint_files):
 class PredictionSmoother:
     """Removes implication and disjointness violations from predictions"""
 
-    def __init__(self, chebi_graph, label_names=None, disjoint_files=None):
+    def __init__(
+        self, chebi_graph, label_names=None, disjoint_files=None, verbose=False
+    ):
         self.chebi_graph = chebi_graph
         self.set_label_names(label_names)
         self.disjoint_groups = get_disjoint_groups(disjoint_files)
+        self.verbose = verbose
 
     def set_label_names(self, label_names):
         if label_names is not None:
@@ -75,43 +78,26 @@ class PredictionSmoother:
                         self.label_successors[i, self.label_names.index(p)] = 1
             self.label_successors = self.label_successors.unsqueeze(0)
 
-    def __call__(self, preds):
-        if preds.shape[1] == 0:
-            # no labels predicted
-            return preds
-        # preds shape: (n_samples, n_labels)
-        preds_sum_orig = torch.sum(preds)
-        # step 1: apply implications: for each class, set prediction to max of itself and all successors
+    def resolve_subsumption_violations(self, preds):
         preds = preds.unsqueeze(1)
         preds_masked_succ = torch.where(self.label_successors, preds, 0)
         # preds_masked_succ shape: (n_samples, n_labels, n_labels)
+        return preds_masked_succ.max(dim=2).values
 
-        preds = preds_masked_succ.max(dim=2).values
-        if torch.sum(preds) != preds_sum_orig:
-            print(f"Preds change (step 1): {torch.sum(preds) - preds_sum_orig}")
+    def resolve_disjointness_violations(self, preds):
         preds_sum_orig = torch.sum(preds)
-        # step 2: eliminate disjointness violations: for group of disjoint classes, set all except max to 0.49 (if it is not already lower)
-        preds_bounded = torch.min(preds, torch.ones_like(preds) * 0.49)
+
         for disj_group in self.disjoint_groups:
             disj_group = [
                 self.label_names.index(g) for g in disj_group if g in self.label_names
             ]
             if len(disj_group) > 1:
-                old_preds = preds[:, disj_group]
                 disj_max = torch.max(preds[:, disj_group], dim=1)
                 for i, row in enumerate(preds):
                     for l_ in range(len(preds[i])):
                         if l_ in disj_group and l_ != disj_group[disj_max.indices[i]]:
-                            preds[i, l_] = preds_bounded[i, l_]
-                samples_changed = 0
-                for i, row in enumerate(preds[:, disj_group]):
-                    if any(r != o for r, o in zip(row, old_preds[i])):
-                        samples_changed += 1
-                if samples_changed != 0:
-                    print(
-                        f"disjointness group {[self.label_names[d] for d in disj_group]} changed {samples_changed} samples"
-                    )
-        if torch.sum(preds) != preds_sum_orig:
+                            preds[i, l_] = 0
+        if self.verbose and torch.sum(preds) != preds_sum_orig:
             print(f"Preds change (step 2): {torch.sum(preds) - preds_sum_orig}")
         preds_sum_orig = torch.sum(preds)
         # step 3: disjointness violation removal may have caused new implication inconsistencies -> set each prediction to min of predecessors
@@ -120,6 +106,51 @@ class PredictionSmoother:
             torch.transpose(self.label_successors, 1, 2), preds, 1
         )
         preds = preds_masked_predec.min(dim=2).values
-        if torch.sum(preds) != preds_sum_orig:
+        if self.verbose and torch.sum(preds) != preds_sum_orig:
             print(f"Preds change (step 3): {torch.sum(preds) - preds_sum_orig}")
         return preds
+
+    def __call__(self, preds):
+        if preds.shape[1] == 0:
+            # no labels predicted
+            return preds
+        # preds shape: (n_samples, n_labels)
+        preds_sum_orig = torch.sum(preds)
+        # step 1: apply implications: for each class, set prediction to max of itself and all successors
+        preds = self.resolve_subsumption_violations(preds)
+
+        if self.verbose and torch.sum(preds) != preds_sum_orig:
+            print(f"Preds change (step 1): {torch.sum(preds) - preds_sum_orig}")
+        # step 2: eliminate disjointness violations: for group of disjoint classes, set all except max to 0.49 (if it is not already lower)
+        preds = self.resolve_disjointness_violations(preds)
+        return preds
+
+
+class PessimisticPredictionSmoother(PredictionSmoother):
+    """Always assumes the positive prediction is wrong (in case of implication violations)"""
+
+    def resolve_subsumption_violations(self, preds):
+        preds = preds.unsqueeze(1)
+        preds_masked_predec = torch.where(
+            torch.transpose(self.label_successors, 1, 2), preds, 1
+        )
+        preds = preds_masked_predec.min(dim=2).values
+        return preds
+
+
+class ScoreBasedPredictionSmoother(PredictionSmoother):
+    """Removes implication violations from predictions based on net scores: for A subclassOf B where score(A) > score(B), either set score(B) = max(score(B), score(A))
+    if abs(score(A)) > abs(score(B)) or set score(A) = min(score(A), score(B)) otherwise.
+    """
+
+    def resolve_subsumption_violations(self, preds):
+        preds = preds.unsqueeze(1)
+        preds_masked_succ = torch.where(self.label_successors, preds, 0)
+        preds_optimistic = preds_masked_succ.max(dim=2).values
+        preds_masked_predec = torch.where(
+            torch.transpose(self.label_successors, 1, 2), preds, 1
+        )
+        preds_pessimistic = preds_masked_predec.min(dim=2).values
+        # take the one with the higher absolute value
+        preds_direction = preds_optimistic - preds_pessimistic > 0
+        return torch.where(preds_direction, preds_optimistic, preds_pessimistic)
