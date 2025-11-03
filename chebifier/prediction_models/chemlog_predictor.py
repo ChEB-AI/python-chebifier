@@ -50,7 +50,8 @@ class ChemlogAllPredictor(BasePredictor):
             for i, res in enumerate(predictor_results):
                 if i >= len(results):
                     results.append(dict())
-                results[i].update(res)
+                if res is not None:
+                    results[i].update(res)
         return results
 
     def explain_smiles(self, smiles):
@@ -93,7 +94,7 @@ class ChemlogXMolecularEntityPredictor(ChemlogExtraPredictor):
         )
 
         super().__init__(model_name, **kwargs)
-        self.classifier = XMolecularEntityClassifier()
+        self.classifier = XMolecularEntityClassifier(chebi_graph=self.chebi_graph)
 
 
 class ChemlogOrganoXCompoundPredictor(ChemlogExtraPredictor):
@@ -103,7 +104,7 @@ class ChemlogOrganoXCompoundPredictor(ChemlogExtraPredictor):
         )
 
         super().__init__(model_name, **kwargs)
-        self.classifier = OrganoXCompoundClassifier()
+        self.classifier = OrganoXCompoundClassifier(chebi_graph=self.chebi_graph)
 
 
 class ChemlogPeptidesPredictor(BasePredictor):
