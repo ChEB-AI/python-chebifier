@@ -6,7 +6,7 @@ from chebifier.ensemble.base_ensemble import BaseEnsemble
 class WMVwithPPVNPVEnsemble(BaseEnsemble):
 
     def __init__(
-        self, config_path=None, weighting_strength=0.5, weighting_exponent=1.0, **kwargs
+        self, config_path=None, weighting_strength=1, weighting_exponent=1, **kwargs
     ):
         """WMV ensemble that weights models based on their class-wise positive / negative predictive values. For each class, the weight is calculated as:
         weight = (weighting_strength * PPV + (1 - weighting_strength)) ** weighting_exponent
@@ -57,7 +57,7 @@ class WMVwithPPVNPVEnsemble(BaseEnsemble):
 class WMVwithF1Ensemble(BaseEnsemble):
 
     def __init__(
-        self, config_path=None, weighting_strength=0.5, weighting_exponent=1.0, **kwargs
+        self, config_path=None, weighting_strength=1, weighting_exponent=6.25, **kwargs
     ):
         """WMV ensemble that weights models based on their class-wise F1 scores. For each class, the weight is calculated as:
         weight = model_weight * (weighting_strength * F1 + (1 - weighting_strength)) ** weighting_exponent
