@@ -9,7 +9,7 @@ import yaml
 
 from chebifier.check_env import check_package_installed
 from chebifier.hugging_face import download_model_files
-from chebifier.inconsistency_resolution import PredictionSmoother
+from chebifier.inconsistency_resolution import ScoreBasedPredictionSmoother
 from chebifier.prediction_models.base_predictor import BasePredictor
 from chebifier.utils import (
     get_default_configs,
@@ -75,7 +75,7 @@ class BaseEnsemble:
             self.models.append(model_instance)
 
         if resolve_inconsistencies:
-            self.smoother = PredictionSmoother(
+            self.smoother = ScoreBasedPredictionSmoother(
                 self.chebi_graph,
                 label_names=None,
                 disjoint_files=self.disjoint_files,
