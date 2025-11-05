@@ -156,7 +156,7 @@ Confidence can be disabled by the `use_confidence` parameter of the predict meth
 The`model_weight` can be set for each model in the configuration file (default: 1). This is used to favor a certain
 model independently of a given class.
 `Trust` is based on the model's performance on a validation set. After training, we evaluate the Machine Learning models
-on a validation set for each class. If the `ensemble_type` is set to `wmv-f1`, the trust is calculated as $F1^6.25$.
+on a validation set for each class. If the `ensemble_type` is set to `wmv-f1`, the trust is calculated as F1-score $^{6.25}$.
 If the `ensemble_type` is set to `mv` (the default), the trust is set to 1 for all models.
 
 ### Inconsistency resolution
