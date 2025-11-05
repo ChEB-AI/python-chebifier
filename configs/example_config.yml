@@ -5,7 +5,7 @@ chemlog_peptides:
 my_resgated:
   type: resgated
   ckpt_path: my_resgated.ckpt # checkpoint trained with chebai
-  target_labels_path: ../python-chebai/data/chebi_v241/ChEBI50/processed/classes.txt # from the chebai dataset
+  target_labels_path: ../python-chebai/data/chebi_v244/ChEBI50/processed/classes.txt # from the chebai dataset
   molecular_properties: # list of properties used during training
       - chebai_graph.preprocessing.properties.AtomType
       - chebai_graph.preprocessing.properties.NumAtomBonds
@@ -22,5 +22,5 @@ my_resgated:
 my_electra:
   type: electra
   ckpt_path: my_electra.ckpt
-  target_labels_path: ../python-chebai/data/chebi_v241/ChEBI50/processed/classes.txt
+  target_labels_path: ../python-chebai/data/chebi_v244/ChEBI50/processed/classes.txt
   #classwise_weights_path: my_electra_metrics.json # can be calculated with chebai.results.generate_class_properties

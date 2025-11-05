@@ -38,13 +38,6 @@ def cli():
     help="Type of ensemble to use (default: Weighted Majority Voting)",
 )
 @click.option(
-    "--chebi-version",
-    "-v",
-    type=int,
-    default=241,
-    help="ChEBI version to use for checking consistency (default: 241)",
-)
-@click.option(
     "--use-confidence",
     "-c",
     is_flag=True,
@@ -58,23 +51,31 @@ def cli():
     default=True,
     help="Resolve inconsistencies in predictions automatically (default: True)",
 )
+@click.option(
+    "--verbose",
+    "-v",
+    is_flag=True,
+    default=False,
+    help="Enable verbose output",
+)
 def predict(
     ensemble_config,
     smiles,
     smiles_file,
     output,
     ensemble_type,
-    chebi_version,
     use_confidence,
     resolve_inconsistencies=True,
+    verbose=False,
 ):
     """Predict ChEBI classes for SMILES strings using an ensemble model."""
 
     # Instantiate ensemble model
     ensemble = ENSEMBLES[ensemble_type](
         ensemble_config,
-        chebi_version=chebi_version,
         resolve_inconsistencies=resolve_inconsistencies,
+        verbose_output=verbose,
+        use_confidence=use_confidence,
     )
 
     # Collect SMILES strings from arguments and/or file
@@ -88,9 +89,7 @@ def predict(
         return
 
     # Make predictions
-    predictions = ensemble.predict_smiles_list(
-        smiles_list, use_confidence=use_confidence
-    )
+    predictions = ensemble.predict_smiles_list(smiles_list)
 
     if output:
         # save as json

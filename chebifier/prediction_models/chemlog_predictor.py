@@ -32,6 +32,32 @@ AA_DICT = {
 }
 
 
+class ChemlogAllPredictor(BasePredictor):
+    def __init__(self, model_name: str, **kwargs):
+        super().__init__(model_name, **kwargs)
+        self.chebi_graph = kwargs.get("chebi_graph", None)
+        self.predictors = [
+            ChemlogXMolecularEntityPredictor("chemlog_x_molecular_entity", **kwargs),
+            ChemlogOrganoXCompoundPredictor("chemlog_organo_x_compound", **kwargs),
+            ChemlogPeptidesPredictor("chemlog_peptides", **kwargs),
+        ]
+
+    @modelwise_smiles_lru_cache.batch_decorator
+    def predict_smiles_list(self, smiles_list: list[str]) -> list:
+        results = []
+        for predictor in self.predictors:
+            predictor_results = predictor._predict_smiles_list(smiles_list)
+            for i, res in enumerate(predictor_results):
+                if i >= len(results):
+                    results.append(dict())
+                if res is not None:
+                    results[i].update(res)
+        return results
+
+    def explain_smiles(self, smiles):
+        return self.predictors[2].explain_smiles(smiles)
+
+
 class ChemlogExtraPredictor(BasePredictor):
 
     def __init__(self, model_name: str, **kwargs):
@@ -41,6 +67,9 @@ class ChemlogExtraPredictor(BasePredictor):
 
     @modelwise_smiles_lru_cache.batch_decorator
     def predict_smiles_list(self, smiles_list: list[str]) -> list:
+        return self._predict_smiles_list(smiles_list)
+
+    def _predict_smiles_list(self, smiles_list: list[str]) -> list:
         from chemlog.cli import _smiles_to_mol
 
         mol_list = [_smiles_to_mol(smiles) for smiles in smiles_list]
@@ -65,7 +94,7 @@ class ChemlogXMolecularEntityPredictor(ChemlogExtraPredictor):
         )
 
         super().__init__(model_name, **kwargs)
-        self.classifier = XMolecularEntityClassifier()
+        self.classifier = XMolecularEntityClassifier(chebi_graph=self.chebi_graph)
 
 
 class ChemlogOrganoXCompoundPredictor(ChemlogExtraPredictor):
@@ -75,7 +104,7 @@ class ChemlogOrganoXCompoundPredictor(ChemlogExtraPredictor):
         )
 
         super().__init__(model_name, **kwargs)
-        self.classifier = OrganoXCompoundClassifier()
+        self.classifier = OrganoXCompoundClassifier(chebi_graph=self.chebi_graph)
 
 
 class ChemlogPeptidesPredictor(BasePredictor):
@@ -124,6 +153,9 @@ class ChemlogPeptidesPredictor(BasePredictor):
 
     @modelwise_smiles_lru_cache.batch_decorator
     def predict_smiles_list(self, smiles_list: list[str]) -> list:
+        return self._predict_smiles_list(smiles_list)
+
+    def _predict_smiles_list(self, smiles_list: list[str]) -> list:
         results = []
         for i, smiles in tqdm.tqdm(enumerate(smiles_list)):
             results.append(self.predict_smiles(smiles))
