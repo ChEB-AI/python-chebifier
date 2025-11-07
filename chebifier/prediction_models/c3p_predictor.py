@@ -1,6 +1,8 @@
 from pathlib import Path
 from typing import List, Optional
 
+import tqdm
+
 from chebifier import modelwise_smiles_lru_cache
 from chebifier.prediction_models import BasePredictor
 
@@ -26,14 +28,22 @@ class C3PPredictor(BasePredictor):
     def predict_smiles_list(self, smiles_list: list[str]) -> list:
         from c3p import classifier as c3p_classifier
 
-        result_list = c3p_classifier.classify(
-            list(smiles_list),
-            self.program_directory,
-            self.chemical_classes,
-            strict=False,
-        )
+        result_list = []
+        for batch_start in tqdm.tqdm(
+            range(0, len(smiles_list), 32), desc="Classifying with C3P"
+        ):
+            batch_end = min(batch_start + 32, len(smiles_list))
+            result_list.extend(
+                c3p_classifier.classify(
+                    smiles_list[batch_start:batch_end],
+                    self.program_directory,
+                    self.chemical_classes,
+                    strict=False,
+                )
+            )
+
         result_reformatted = [dict() for _ in range(len(smiles_list))]
-        for result in result_list:
+        for result in tqdm.tqdm(result_list, desc="Reformatting C3P results"):
             chebi_id = result.class_id.split(":")[1]
             result_reformatted[smiles_list.index(result.input_smiles)][
                 chebi_id
@@ -61,13 +71,13 @@ class C3PPredictor(BasePredictor):
                 highlights.append(
                     (
                         "text",
-                        f"For class {result.class_name} ({result.class_id}), C3P gave the following explanation: {result.reason}",
+                        f"For {result.class_name} ({result.class_id}), C3P gave the following explanation: {result.reason}",
                     )
                 )
         highlights = [
             (
                 "text",
-                f"C3P made positive predictions for {len(highlights)} classes. The explanations are as follows:",
+                f"C3P made positive predictions for {len(highlights)} classes. {'The explanations are as follows:' if len(highlights) > 0 else ''}",
             )
         ] + highlights
 

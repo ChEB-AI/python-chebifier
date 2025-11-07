@@ -1,3 +1,4 @@
+import functools
 import importlib.resources
 import os
 import pickle
@@ -6,6 +7,7 @@ import fastobo
 import networkx as nx
 import requests
 import yaml
+from rdkit import Chem
 
 from chebifier.hugging_face import download_model_files
 
@@ -154,6 +156,18 @@ def process_config(config, model_registry):
         else:
             new_config[model_name] = entry
     return new_config
+
+
+@functools.lru_cache(maxsize=128)
+def _smiles_to_mol(smiles: str):
+    mol = Chem.MolFromSmiles(smiles, sanitize=False)
+    if mol is not None:
+        # turn aromatic bond types into single/double
+        try:
+            Chem.Kekulize(mol)
+        except Chem.KekulizeException as e:
+            print(f"Failed to Kekulize {smiles}: {e}")
+    return mol
 
 
 if __name__ == "__main__":

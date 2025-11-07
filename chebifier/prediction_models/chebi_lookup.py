@@ -6,7 +6,7 @@ from rdkit import Chem
 
 from chebifier import modelwise_smiles_lru_cache
 from chebifier.prediction_models import BasePredictor
-from chebifier.utils import load_chebi_graph
+from chebifier.utils import _smiles_to_mol, load_chebi_graph
 
 
 class ChEBILookupPredictor(BasePredictor):
@@ -50,7 +50,7 @@ class ChEBILookupPredictor(BasePredictor):
         ).items():
             if smiles is not None:
                 try:
-                    mol = Chem.MolFromSmiles(smiles)
+                    mol = _smiles_to_mol(smiles)
                     if mol is None:
                         print(
                             f"Failed to parse SMILES {smiles} for ChEBI ID {chebi_id}"
@@ -72,7 +72,7 @@ class ChEBILookupPredictor(BasePredictor):
     def predict_smiles(self, smiles: str) -> Optional[dict]:
         if not smiles:
             return None
-        mol = Chem.MolFromSmiles(smiles)
+        mol = _smiles_to_mol(smiles)
         if mol is None:
             return None
         canonical_smiles = Chem.MolToSmiles(mol)
@@ -110,7 +110,7 @@ class ChEBILookupPredictor(BasePredictor):
         return self._description
 
     def explain_smiles(self, smiles: str) -> dict:
-        mol = Chem.MolFromSmiles(smiles)
+        mol = _smiles_to_mol(smiles)
         if mol is None:
             return {
                 "highlights": [
