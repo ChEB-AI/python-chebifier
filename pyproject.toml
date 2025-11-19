@@ -22,6 +22,8 @@ dependencies = [
     "pyyaml",
     "tqdm",
     "rdkit",
+    "fastobo",
+    "torch",
     # Package to install manually if required
     #"chebai>=1.0.1",
     #"chemlog>=1.0.4",
