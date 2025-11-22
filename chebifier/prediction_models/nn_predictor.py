@@ -22,6 +22,8 @@ class NNPredictor(BasePredictor):
 
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model = self.init_model(ckpt_path=ckpt_path)
+        self.model.eval()
+
         self.target_labels = [
             line.strip() for line in open(target_labels_path, encoding="utf-8")
         ]
@@ -32,6 +34,7 @@ class NNPredictor(BasePredictor):
             "Model initialization must be implemented in subclasses."
         )
 
+    @torch.inference_mode()
     def calculate_results(self, batch):
         collator = self.reader_cls.COLLATOR()
         dat = self.model._process_batch(collator(batch).to(self.device), 0)
