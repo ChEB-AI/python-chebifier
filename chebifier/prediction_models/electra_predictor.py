@@ -1,11 +1,6 @@
-from typing import TYPE_CHECKING
-
 import numpy as np
 
 from .nn_predictor import NNPredictor
-
-if TYPE_CHECKING:
-    from chebai.models.electra import Electra
 
 
 def build_graph_from_attention(att, node_labels, token_labels, threshold=0.0):
@@ -40,37 +35,22 @@ def build_graph_from_attention(att, node_labels, token_labels, threshold=0.0):
 
 class ElectraPredictor(NNPredictor):
     def __init__(self, model_name: str, ckpt_path: str, **kwargs):
-        from chebai.preprocessing.reader import ChemDataReader
-
-        super().__init__(model_name, ckpt_path, reader_cls=ChemDataReader, **kwargs)
+        super().__init__(model_name, ckpt_path, **kwargs)
         print(f"Initialised Electra model {self.model_name} (device: {self.device})")
-
-    def init_model(self, ckpt_path: str, **kwargs) -> "Electra":
-        from chebai.models.electra import Electra
-
-        model = Electra.load_from_checkpoint(
-            ckpt_path,
-            map_location=self.device,
-            criterion=None,
-            strict=False,
-            metrics=dict(train=dict(), test=dict(), validation=dict()),
-            pretrained_checkpoint=None,
-        )
-        model.eval()
-        return model
 
     def explain_smiles(self, smiles) -> dict:
         from chebai.preprocessing.reader import EMBEDDING_OFFSET
 
-        reader = self.reader_cls()
-        token_dict = reader.to_data(dict(features=smiles, labels=None))
+        token_dict = self._predictor._dm.reader.to_data(
+            dict(features=smiles, labels=None)
+        )
         tokens = np.array(token_dict["features"]).astype(int).tolist()
         result = self.calculate_results([token_dict])
 
         token_labels = (
             ["[CLR]"]
             + [None for _ in range(EMBEDDING_OFFSET - 1)]
-            + list(reader.cache.keys())
+            + list(self._predictor._dm.reader.cache.keys())
         )
 
         graphs = [

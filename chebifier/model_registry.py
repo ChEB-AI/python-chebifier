@@ -7,7 +7,7 @@ from chebifier.prediction_models import (
     ChEBILookupPredictor,
     ChemlogPeptidesPredictor,
     ElectraPredictor,
-    ResGatedPredictor,
+    GNNPredictor,
 )
 from chebifier.prediction_models.c3p_predictor import C3PPredictor
 from chebifier.prediction_models.chemlog_predictor import (
@@ -26,7 +26,7 @@ ENSEMBLES = {
 
 MODEL_TYPES = {
     "electra": ElectraPredictor,
-    "resgated": ResGatedPredictor,
+    "resgated": GNNPredictor,
     "gat": GATPredictor,
     "chemlog": ChemlogAllPredictor,
     "chemlog_peptides": ChemlogPeptidesPredictor,
@@ -38,6 +38,6 @@ MODEL_TYPES = {
 
 
 common_keys = MODEL_TYPES.keys() & ENSEMBLES.keys()
-assert (
-    not common_keys
-), f"Overlapping keys between MODEL_TYPES and ENSEMBLES: {common_keys}"
+assert not common_keys, (
+    f"Overlapping keys between MODEL_TYPES and ENSEMBLES: {common_keys}"
+)
