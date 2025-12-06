@@ -38,6 +38,6 @@ MODEL_TYPES = {
 
 
 common_keys = MODEL_TYPES.keys() & ENSEMBLES.keys()
-assert not common_keys, (
-    f"Overlapping keys between MODEL_TYPES and ENSEMBLES: {common_keys}"
-)
+assert (
+    not common_keys
+), f"Overlapping keys between MODEL_TYPES and ENSEMBLES: {common_keys}"
