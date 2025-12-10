@@ -12,6 +12,8 @@ from chebifier.prediction_models import (
 from chebifier.prediction_models.c3p_predictor import C3PPredictor
 from chebifier.prediction_models.chemlog_predictor import (
     ChemlogAllPredictor,
+    ChemLogLopsterClingoPredictor,
+    ChemlogLopsterPredictor,
     ChemlogOrganoXCompoundPredictor,
     ChemlogXMolecularEntityPredictor,
 )
@@ -33,6 +35,8 @@ MODEL_TYPES = {
     "chebi_lookup": ChEBILookupPredictor,
     "chemlog_element": ChemlogXMolecularEntityPredictor,
     "chemlog_organox": ChemlogOrganoXCompoundPredictor,
+    "lopster": ChemlogLopsterPredictor,
+    "lopster_clingo": ChemLogLopsterClingoPredictor,
     "c3p": C3PPredictor,
 }
 
