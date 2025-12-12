@@ -14,18 +14,6 @@ gat_chebi50_v244:
       ckpt_path: gat_chebi50_v244_0nfi19qt_epoch=198.ckpt
       target_labels_path: classes.txt
       classwise_weights_path: gat_chebi50_v244_0nfi19qt_epoch=198_trust_3star.json
-  dataset_cls: chebai_graph.preprocessing.datasets.ChEBI50GraphProperties
-  molecular_properties:
-    - chebai_graph.preprocessing.properties.AtomType
-    - chebai_graph.preprocessing.properties.NumAtomBonds
-    - chebai_graph.preprocessing.properties.AtomCharge
-    - chebai_graph.preprocessing.properties.AtomAromaticity
-    - chebai_graph.preprocessing.properties.AtomHybridization
-    - chebai_graph.preprocessing.properties.AtomNumHs
-    - chebai_graph.preprocessing.properties.BondType
-    - chebai_graph.preprocessing.properties.BondInRing
-    - chebai_graph.preprocessing.properties.BondAromaticity
-    - chebai_graph.preprocessing.properties.RDKit2DNormalized
 gat-aug_chebi50_v244:
   type: gat
   hugging_face:
@@ -34,28 +22,6 @@ gat-aug_chebi50_v244:
       ckpt_path: gat-aug_chebi50_v244_8fky8tru_epoch=192.ckpt
       target_labels_path: classes.txt
       classwise_weights_path: gat-aug_chebi50_v244_8fky8tru_epoch=192_trust_3star.json
-  dataset_cls: chebai_graph.preprocessing.datasets.ChEBI50_WFGE_WGN_AsPerNodeType
-  molecular_properties:
-    - chebai_graph.preprocessing.properties.AtomNodeLevel
-    # Atom Node type properties
-    - chebai_graph.preprocessing.properties.AugAtomAromaticity
-    - chebai_graph.preprocessing.properties.AugAtomCharge
-    - chebai_graph.preprocessing.properties.AugAtomHybridization
-    - chebai_graph.preprocessing.properties.AugAtomNumHs
-    - chebai_graph.preprocessing.properties.AugAtomType
-    - chebai_graph.preprocessing.properties.AugNumAtomBonds
-    # FG Node type properties
-    - chebai_graph.preprocessing.properties.AtomFunctionalGroup
-    - chebai_graph.preprocessing.properties.IsHydrogenBondDonorFG
-    - chebai_graph.preprocessing.properties.IsHydrogenBondAcceptorFG
-    - chebai_graph.preprocessing.properties.IsFGAlkyl
-    # Graph Node type properties
-    - chebai_graph.preprocessing.properties.AugRDKit2DNormalized
-    # Bond properties
-    - chebai_graph.preprocessing.properties.BondLevel
-    - chebai_graph.preprocessing.properties.AugBondAromaticity
-    - chebai_graph.preprocessing.properties.AugBondInRing
-    - chebai_graph.preprocessing.properties.AugBondType
 resgated-aug_chebi50-3star_v244:
   type: resgated
   hugging_face:
@@ -64,28 +30,6 @@ resgated-aug_chebi50-3star_v244:
       ckpt_path: resgated-aug_chebi50-3star_v244_w0rhmajx_epoch=190.ckpt
       target_labels_path: classes.txt
       classwise_weights_path: resgated-aug_chebi50-3star_v244_w0rhmajx_epoch=190_trust_3star.json
-  dataset_cls: chebai_graph.preprocessing.datasets.ChEBI50_WFGE_WGN_AsPerNodeType
-  molecular_properties:
-    - chebai_graph.preprocessing.properties.AtomNodeLevel
-    # Atom Node type properties
-    - chebai_graph.preprocessing.properties.AugAtomAromaticity
-    - chebai_graph.preprocessing.properties.AugAtomCharge
-    - chebai_graph.preprocessing.properties.AugAtomHybridization
-    - chebai_graph.preprocessing.properties.AugAtomNumHs
-    - chebai_graph.preprocessing.properties.AugAtomType
-    - chebai_graph.preprocessing.properties.AugNumAtomBonds
-    # FG Node type properties
-    - chebai_graph.preprocessing.properties.AtomFunctionalGroup
-    - chebai_graph.preprocessing.properties.IsHydrogenBondDonorFG
-    - chebai_graph.preprocessing.properties.IsHydrogenBondAcceptorFG
-    - chebai_graph.preprocessing.properties.IsFGAlkyl
-    # Graph Node type properties
-    - chebai_graph.preprocessing.properties.AugRDKit2DNormalized
-    # Bond properties
-    - chebai_graph.preprocessing.properties.BondLevel
-    - chebai_graph.preprocessing.properties.AugBondAromaticity
-    - chebai_graph.preprocessing.properties.AugBondInRing
-    - chebai_graph.preprocessing.properties.AugBondType
 electra_chebi50_v241:
     type: electra
     hugging_face:
@@ -102,17 +46,6 @@ resgated_chebi50_v241:
         ckpt_path: 0ps1g189_epoch=122.ckpt
         target_labels_path: classes.txt
         classwise_weights_path: metrics_0ps1g189_80-10-10_short.json
-    molecular_properties:
-      - chebai_graph.preprocessing.properties.AtomType
-      - chebai_graph.preprocessing.properties.NumAtomBonds
-      - chebai_graph.preprocessing.properties.AtomCharge
-      - chebai_graph.preprocessing.properties.AtomAromaticity
-      - chebai_graph.preprocessing.properties.AtomHybridization
-      - chebai_graph.preprocessing.properties.AtomNumHs
-      - chebai_graph.preprocessing.properties.BondType
-      - chebai_graph.preprocessing.properties.BondInRing
-      - chebai_graph.preprocessing.properties.BondAromaticity
-      - chebai_graph.preprocessing.properties.RDKit2DNormalized
 c3p_with_weights:
   type: c3p
   hugging_face:
