@@ -36,7 +36,7 @@ def build_graph_from_attention(att, node_labels, token_labels, threshold=0.0):
 class ElectraPredictor(NNPredictor):
     def __init__(self, model_name: str, ckpt_path: str, **kwargs):
         super().__init__(model_name, ckpt_path, **kwargs)
-        print(f"Initialised Electra model {self.model_name} (device: {self.device})")
+        print(f"Initialised Electra model {self.model_name}")
 
     def explain_smiles(self, smiles) -> dict:
         from chebai.preprocessing.reader import EMBEDDING_OFFSET
