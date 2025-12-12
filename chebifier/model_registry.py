@@ -15,7 +15,6 @@ from chebifier.prediction_models.chemlog_predictor import (
     ChemlogOrganoXCompoundPredictor,
     ChemlogXMolecularEntityPredictor,
 )
-from chebifier.prediction_models.gnn_predictor import GATPredictor
 
 ENSEMBLES = {
     "mv": BaseEnsemble,
@@ -27,7 +26,7 @@ ENSEMBLES = {
 MODEL_TYPES = {
     "electra": ElectraPredictor,
     "resgated": GNNPredictor,
-    "gat": GATPredictor,
+    "gat": GNNPredictor,
     "chemlog": ChemlogAllPredictor,
     "chemlog_peptides": ChemlogPeptidesPredictor,
     "chebi_lookup": ChEBILookupPredictor,
