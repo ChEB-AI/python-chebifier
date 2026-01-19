@@ -68,8 +68,6 @@ class ResGatedPredictor(NNPredictor):
             map_location=torch.device(self.device),
             criterion=None,
             strict=False,
-            metrics=dict(train=dict(), test=dict(), validation=dict()),
-            pretrained_checkpoint=None,
         )
         model.eval()
         return model
@@ -113,8 +111,6 @@ class GATPredictor(ResGatedPredictor):
             map_location=torch.device(self.device),
             criterion=None,
             strict=False,
-            metrics=dict(train=dict(), test=dict(), validation=dict()),
-            pretrained_checkpoint=None,
         )
         model.eval()
         return model
