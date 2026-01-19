@@ -33,13 +33,23 @@ class WMVwithPPVNPVEnsemble(BaseEnsemble):
             if model.classwise_weights is None:
                 continue
             for cls, weights in model.classwise_weights.items():
+                if cls not in predicted_classes:
+                    continue
+                ppv = (
+                    weights["TP"] / (weights["TP"] + weights["FP"])
+                    if (weights["TP"] + weights["FP"]) > 0
+                    else 1.0
+                )
+                npv = (
+                    weights["TN"] / (weights["TN"] + weights["FN"])
+                    if (weights["TN"] + weights["FN"]) > 0
+                    else 1.0
+                )
                 positive_weights[predicted_classes[cls], j] *= (
-                    weights["PPV"] * self.weighting_strength
-                    + (1 - self.weighting_strength)
+                    ppv * self.weighting_strength + (1 - self.weighting_strength)
                 ) ** self.weighting_exponent
                 negative_weights[predicted_classes[cls], j] *= (
-                    weights["NPV"] * self.weighting_strength
-                    + (1 - self.weighting_strength)
+                    npv * self.weighting_strength + (1 - self.weighting_strength)
                 ) ** self.weighting_exponent
 
         if self.verbose_output:
