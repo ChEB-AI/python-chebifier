@@ -25,7 +25,7 @@ def download_model_files(
         model_config (Dict[str, str | Dict[str, str]]): A dictionary containing:
             - 'repo_id' (str): The Hugging Face repository ID (e.g., 'username/modelname').
             - 'subfolder' (str): The subfolder within the repo where the files are located.
-            - 'files' (Dict[str, str]): A mapping from file type (e.g., 'ckpt_path', 'target_labels_path') to
+            - 'files' (Dict[str, str]): A mapping from file type (e.g., 'ckpt_path') to
               actual file names (e.g., 'electra.ckpt', 'classes.txt').
 
     Returns:

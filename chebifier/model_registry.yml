@@ -4,7 +4,6 @@ electra_chebi50-3star_v244:
     repo_id: chebai/electra_chebi50-3star_v244
     files:
       ckpt_path: electra_chebi50-3star_v244_x2mngani_epoch=180.ckpt
-      target_labels_path: classes.txt
       classwise_weights_path: electra_chebi50-3star_v244_x2mngani_epoch=180_trust_3star.json
 gat_chebi50_v244:
   type: gat
@@ -12,7 +11,6 @@ gat_chebi50_v244:
     repo_id: chebai/gat_chebi50_v244
     files:
       ckpt_path: gat_chebi50_v244_0nfi19qt_epoch=198.ckpt
-      target_labels_path: classes.txt
       classwise_weights_path: gat_chebi50_v244_0nfi19qt_epoch=198_trust_3star.json
 gat-aug_chebi50_v244:
   type: gat
@@ -20,7 +18,6 @@ gat-aug_chebi50_v244:
     repo_id: chebai/gat-aug_chebi50_v244
     files:
       ckpt_path: gat-aug_chebi50_v244_8fky8tru_epoch=192.ckpt
-      target_labels_path: classes.txt
       classwise_weights_path: gat-aug_chebi50_v244_8fky8tru_epoch=192_trust_3star.json
 resgated-aug_chebi50-3star_v244:
   type: resgated
@@ -28,7 +25,6 @@ resgated-aug_chebi50-3star_v244:
     repo_id: chebai/resgated-aug_chebi50-3star_v244
     files:
       ckpt_path: resgated-aug_chebi50-3star_v244_w0rhmajx_epoch=190.ckpt
-      target_labels_path: classes.txt
       classwise_weights_path: resgated-aug_chebi50-3star_v244_w0rhmajx_epoch=190_trust_3star.json
 electra_chebi50_v241:
     type: electra
@@ -36,7 +32,6 @@ electra_chebi50_v241:
       repo_id: chebai/electra_chebi50_v241
       files:
         ckpt_path: 14ko0zcf_epoch=193.ckpt
-        target_labels_path: classes.txt
         classwise_weights_path: metrics_electra_14ko0zcf_80-10-10_short.json
 resgated_chebi50_v241:
     type: resgated
@@ -44,7 +39,6 @@ resgated_chebi50_v241:
       repo_id: chebai/resgated_gcn_chebi50_v241
       files:
         ckpt_path: 0ps1g189_epoch=122.ckpt
-        target_labels_path: classes.txt
         classwise_weights_path: metrics_0ps1g189_80-10-10_short.json
 c3p_with_weights:
   type: c3p
