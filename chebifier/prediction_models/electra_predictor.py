@@ -37,13 +37,13 @@ class ElectraPredictor(NNPredictor):
     def __init__(self, model_name: str, ckpt_path: str, **kwargs):
         super().__init__(model_name, ckpt_path, **kwargs)
         print(
-            f"Initialised Electra model {self.model_name} (device: {self._predictor.device})"
+            f"Initialised Electra model {self.model_name} (device: {self.predictor.device})"
         )
 
     def explain_smiles(self, smiles) -> dict:
         from chebai.preprocessing.reader import EMBEDDING_OFFSET
 
-        token_dict = self._predictor._dm.reader.to_data(
+        token_dict = self.predictor._dm.reader.to_data(
             dict(features=smiles, labels=None)
         )
         tokens = np.array(token_dict["features"]).astype(int).tolist()
