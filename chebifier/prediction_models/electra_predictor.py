@@ -43,8 +43,15 @@ class ElectraPredictor(NNPredictor):
     def explain_smiles(self, smiles) -> dict:
         from chebai.preprocessing.reader import EMBEDDING_OFFSET
 
+        # Add dummy labels because the collate function requires them.
+        # Note: If labels are set to `None`, the collator will insert a `non_null_labels` entry into `loss_kwargs`,
+        # which later causes `_get_prediction_and_labels` method in the prediction pipeline to treat the data as empty.
+        # Note: With New changes from https://github.com/ChEB-AI/python-chebai/pull/130, when labels are None, it also
+        # causes problems with `missing_labels` handling. Hence using dummy labels.
+        dummy_labels: list = list(range(1, self.predictor._model.out_dim + 1))
+
         token_dict = self.predictor._dm.reader.to_data(
-            dict(features=smiles, labels=None)
+            dict(features=smiles, labels=dummy_labels)
         )
         tokens = np.array(token_dict["features"]).astype(int).tolist()
         result = self.calculate_results([token_dict])
@@ -52,7 +59,7 @@ class ElectraPredictor(NNPredictor):
         token_labels = (
             ["[CLR]"]
             + [None for _ in range(EMBEDDING_OFFSET - 1)]
-            + list(self._predictor._dm.reader.cache.keys())
+            + list(self.predictor._dm.reader.cache.keys())
         )
 
         graphs = [
