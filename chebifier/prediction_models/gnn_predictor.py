@@ -10,5 +10,5 @@ class GNNPredictor(NNPredictor):
     ):
         super().__init__(model_name, ckpt_path, **kwargs)
         print(
-            f"Initialised GNN model {self.model_name} (device: {self._predictor.device})"
+            f"Initialised GNN model {self.model_name} (device: {self.predictor.device})"
         )
