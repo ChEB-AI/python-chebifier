@@ -63,7 +63,7 @@ class ElectraPredictor(NNPredictor):
         from chebai.preprocessing.reader import EMBEDDING_OFFSET
 
         reader = self.reader_cls()
-        token_dict = reader.to_data(dict(features=smiles, labels=None))
+        token_dict = reader.to_data(dict(features=smiles, labels=[1, 2]))  # dummy label
         tokens = np.array(token_dict["features"]).astype(int).tolist()
         result = self.calculate_results([token_dict])
 

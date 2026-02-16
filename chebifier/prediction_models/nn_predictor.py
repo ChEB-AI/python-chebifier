@@ -50,7 +50,7 @@ class NNPredictor(BasePredictor):
             yield cache
 
     def read_smiles(self, smiles):
-        d = self.reader.to_data(dict(features=smiles, labels=None))
+        d = self.reader.to_data(dict(features=smiles, labels=[1, 2]))  # dummy label
         return d
 
     @modelwise_smiles_lru_cache.batch_decorator

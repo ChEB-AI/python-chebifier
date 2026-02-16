@@ -77,7 +77,9 @@ class ResGatedPredictor(NNPredictor):
     def read_smiles(self, smiles):
         from chebai_graph.preprocessing.datasets.chebi import GraphPropAsPerNodeType
 
-        d = self.dataset.READER().to_data(dict(features=smiles, labels=None))
+        d = self.dataset.READER().to_data(
+            dict(features=smiles, labels=[1, 2])
+        )  # dummy label
         property_data = d
         # TODO merge props into base should not be a method of a dataset (or at least static)
         for property in self.dataset.properties:
