@@ -53,7 +53,6 @@ class ElectraPredictor(NNPredictor):
             map_location=self.device,
             criterion=None,
             strict=False,
-            metrics=dict(train=dict(), test=dict(), validation=dict()),
             pretrained_checkpoint=None,
         )
         model.eval()
