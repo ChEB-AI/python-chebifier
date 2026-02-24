@@ -1,115 +1,54 @@
-import numpy as np
-import tqdm
-from rdkit import Chem
+from abc import ABC
+from typing import TYPE_CHECKING
+
+from chebai.result.prediction import Predictor
 
 from chebifier import modelwise_smiles_lru_cache
 
 from .base_predictor import BasePredictor
 
+if TYPE_CHECKING:
+    from torch import Tensor
 
-class NNPredictor(BasePredictor):
+
+class NNPredictor(BasePredictor, ABC):
     def __init__(
         self,
         model_name: str,
         ckpt_path: str,
-        reader_cls,
-        target_labels_path: str,
         **kwargs,
     ):
-        import torch
-
         super().__init__(model_name, **kwargs)
-        self.reader_cls = reader_cls
-        self.reader = reader_cls()
-
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = self.init_model(ckpt_path=ckpt_path)
-        self.target_labels = [
-            line.strip() for line in open(target_labels_path, encoding="utf-8")
-        ]
-        self.batch_size = kwargs.get("batch_size", 1)
-
-    def init_model(self, ckpt_path: str, **kwargs):
-        raise NotImplementedError(
-            "Model initialization must be implemented in subclasses."
-        )
-
-    def calculate_results(self, batch):
-        collator = self.reader_cls.COLLATOR()
-        dat = self.model._process_batch(collator(batch).to(self.device), 0)
-        return self.model(dat, **dat["model_kwargs"])
-
-    def batchify(self, batch):
-        cache = []
-        for r in batch:
-            cache.append(r)
-            if len(cache) >= self.batch_size:
-                yield cache
-                cache = []
-        if cache:
-            yield cache
-
-    def read_smiles(self, smiles):
-        d = self.reader.to_data(dict(features=smiles, labels=[1, 2]))  # dummy label
-        return d
+        self.batch_size = kwargs.get("batch_size", None)
+        # If batch_size is not provided, it will be set to default batch size used during training in Predictor
+        self.predictor: Predictor = Predictor(ckpt_path, self.batch_size)
 
     @modelwise_smiles_lru_cache.batch_decorator
     def predict_smiles_list(self, smiles_list: list[str]) -> list:
-        """Returns a list with the length of smiles_list, each element is either None (=failure) or a dictionary
-        Of classes and predicted values."""
-        import torch
-
-        token_dicts = []
-        could_not_parse = []
-        index_map = dict()
-        for i, smiles in enumerate(smiles_list):
-            if not smiles:
-                print(
-                    f"Model {self.model_name} received a missing SMILES string at position {i}."
-                )
-                could_not_parse.append(i)
-                continue
-            try:
-                d = self.read_smiles(smiles)
-                # This is just for sanity checks
-                rdmol = Chem.MolFromSmiles(smiles, sanitize=False)
-                if rdmol is None:
-                    print(
-                        f"Model {self.model_name} received a SMILES string RDKit can't read at position {i}: {smiles}"
-                    )
-                    could_not_parse.append(i)
-                    continue
-            except Exception:
-                could_not_parse.append(i)
-                print(
-                    f"Model {self.model_name} failed to parse a SMILES string at position {i}: {smiles}"
-                )
-                continue
-            index_map[i] = len(token_dicts)
-            token_dicts.append(d)
-        results = []
-        if len(token_dicts) > 0:
-            for batch in tqdm.tqdm(
-                self.batchify(token_dicts),
-                desc=f"{self.model_name}",
-                total=len(token_dicts) // self.batch_size,
-            ):
-                result = self.calculate_results(batch)
-                if isinstance(result, dict) and "logits" in result:
-                    result = result["logits"]
-                results += torch.sigmoid(result).cpu().detach().tolist()
-            results = np.stack(results, axis=0)
+        """
+        Returns a list with the length of smiles_list, each element is
+        either None (=failure) or a dictionary of classes and predicted values.
+        """
+        raw_preds: Tensor = self.predictor.predict_smiles(smiles_list)
+        if raw_preds is not None:
             preds = [
                 (
                     {
-                        self.target_labels[j]: p
-                        for j, p in enumerate(results[index_map[i]])
+                        label: pred
+                        for label, pred in zip(
+                            self.predictor._classification_labels, raw_preds[i].tolist()
+                        )
                     }
-                    if i not in could_not_parse
-                    else None
                 )
                 for i in range(len(smiles_list))
             ]
             return preds
         else:
             return [None for _ in smiles_list]
+
+    def calculate_results(self, batch):
+        collator = self.predictor._dm.reader.COLLATOR()
+        dat = self.predictor._model._process_batch(
+            collator(batch).to(self.predictor.device), 0
+        )
+        return self.predictor._model(dat, **dat["model_kwargs"])

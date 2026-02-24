@@ -271,7 +271,6 @@ if __name__ == "__main__":
             "resgated_0ps1g189": {
                 "type": "resgated",
                 "ckpt_path": "data/0ps1g189/epoch=122.ckpt",
-                "target_labels_path": "data/chebi_v241/ChEBI50/processed/classes.txt",
                 "molecular_properties": [
                     "chebai_graph.preprocessing.properties.AtomType",
                     "chebai_graph.preprocessing.properties.NumAtomBonds",
@@ -289,7 +288,6 @@ if __name__ == "__main__":
             "electra_14ko0zcf": {
                 "type": "electra",
                 "ckpt_path": "data/14ko0zcf/epoch=193.ckpt",
-                "target_labels_path": "data/chebi_v241/ChEBI50/processed/classes.txt",
                 # "classwise_weights_path": "../python-chebai/metrics_electra_14ko0zcf_80-10-10.json",
             },
         }
