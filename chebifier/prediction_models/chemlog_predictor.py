@@ -107,6 +107,22 @@ class ChemlogOrganoXCompoundPredictor(ChemlogExtraPredictor):
         self.classifier = OrganoXCompoundClassifier(chebi_graph=self.chebi_graph)
 
 
+class ChemlogLopsterPredictor(ChemlogExtraPredictor):
+    def __init__(self, model_name: str, **kwargs):
+        from chemlog.lopster.lopster_classifier import LopsterClassifier
+
+        super().__init__(model_name, **kwargs)
+        self.classifier = LopsterClassifier()
+
+
+class ChemLogLopsterClingoPredictor(ChemlogExtraPredictor):
+    def __init__(self, model_name: str, **kwargs):
+        from chemlog.lopster.lopster_classifier import LopsterClingoClassifier
+
+        super().__init__(model_name, **kwargs)
+        self.classifier = LopsterClingoClassifier()
+
+
 class ChemlogPeptidesPredictor(BasePredictor):
     def __init__(self, model_name: str, **kwargs):
         from chemlog.cli import CLASSIFIERS
