@@ -1,3 +1,5 @@
+from typing import Optional
+
 import numpy as np
 
 from .nn_predictor import NNPredictor
@@ -40,7 +42,7 @@ class ElectraPredictor(NNPredictor):
             f"Initialised Electra model {self.model_name} (device: {self.predictor.device})"
         )
 
-    def explain_smiles(self, smiles) -> dict:
+    def explain_smiles(self, smiles) -> Optional[dict]:
         from chebai.preprocessing.reader import EMBEDDING_OFFSET
 
         # Add dummy labels because the collate function requires them.
@@ -69,4 +71,6 @@ class ElectraPredictor(NNPredictor):
             ]
             for a in result["attentions"]
         ]
+        if len(graphs) == 0:
+            return None
         return {"graphs": graphs}
