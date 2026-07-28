@@ -2,8 +2,8 @@ from typing import Optional
 
 import tqdm
 
-from .. import modelwise_smiles_lru_cache
-from .base_predictor import BasePredictor
+from chebifier import modelwise_smiles_lru_cache
+from chebifier.prediction_models.base_predictor import BasePredictor
 
 AA_DICT = {
     "A": "L-alanine",
