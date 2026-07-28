@@ -25,7 +25,7 @@ class C3PPredictor(BasePredictor):
         self.chebi_graph = kwargs.get("chebi_graph", None)
 
     @modelwise_smiles_lru_cache.batch_decorator
-    def predict_smiles_list(self, smiles_list: list[str]) -> list:
+    def predict_list(self, smiles_list: list[str]) -> list:
         from c3p import classifier as c3p_classifier
 
         result_list = []

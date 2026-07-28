@@ -69,7 +69,7 @@ class ChEBILookupPredictor(BasePredictor):
                     )
         return smiles_lookup
 
-    def predict_smiles(self, smiles: str) -> Optional[dict]:
+    def predict(self, smiles: str) -> Optional[dict]:
         if not smiles:
             return None
         mol = _smiles_to_mol(smiles)
@@ -96,10 +96,10 @@ class ChEBILookupPredictor(BasePredictor):
             return None
 
     @modelwise_smiles_lru_cache.batch_decorator
-    def predict_smiles_list(self, smiles_list: list[str]) -> list:
+    def predict_list(self, smiles_list: list[str]) -> list:
         predictions = []
         for smiles in smiles_list:
-            predictions.append(self.predict_smiles(smiles))
+            predictions.append(self.predict(smiles))
 
         return predictions
 
@@ -150,5 +150,5 @@ if __name__ == "__main__":
         "C1=CC=CC=C1",
         "*C(=O)OC[C@H](COP(=O)([O-])OCC[N+](C)(C)C)OC(*)=O",
     ]  # SMILES with 251 matches in ChEBI
-    predictions = predictor.predict_smiles_list(smiles_list)
+    predictions = predictor.predict_list(smiles_list)
     print(predictions)

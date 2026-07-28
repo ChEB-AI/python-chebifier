@@ -29,7 +29,7 @@ class NNPredictor(BasePredictor, ABC):
         )
 
     @modelwise_smiles_lru_cache.batch_decorator
-    def predict_smiles_list(self, smiles_list: list[str]) -> list:
+    def predict_list(self, smiles_list: list[str]) -> list:
         """
         Returns a list with the length of smiles_list, each element is
         either None (=failure) or a dictionary of classes and predicted values.

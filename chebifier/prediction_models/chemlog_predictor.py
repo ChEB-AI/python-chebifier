@@ -43,7 +43,7 @@ class ChemlogAllPredictor(BasePredictor):
         ]
 
     @modelwise_smiles_lru_cache.batch_decorator
-    def predict_smiles_list(self, smiles_list: list[str]) -> list:
+    def predict_list(self, smiles_list: list[str]) -> list:
         results = []
         for predictor in self.predictors:
             predictor_results = predictor._predict_smiles_list(smiles_list)
@@ -66,7 +66,7 @@ class ChemlogExtraPredictor(BasePredictor):
         self.classifier = None
 
     @modelwise_smiles_lru_cache.batch_decorator
-    def predict_smiles_list(self, smiles_list: list[str]) -> list:
+    def predict_list(self, smiles_list: list[str]) -> list:
         return self._predict_smiles_list(smiles_list)
 
     def _predict_smiles_list(self, smiles_list: list[str]) -> list:
@@ -141,7 +141,7 @@ class ChemlogPeptidesPredictor(BasePredictor):
         # fmt: on
         print(f"Initialised ChemLog model {self.model_name}")
 
-    def predict_smiles(self, smiles: str) -> Optional[dict]:
+    def predict(self, smiles: str) -> Optional[dict]:
         from chemlog.cli import _smiles_to_mol, strategy_call
 
         mol = _smiles_to_mol(smiles)
@@ -168,13 +168,13 @@ class ChemlogPeptidesPredictor(BasePredictor):
         }
 
     @modelwise_smiles_lru_cache.batch_decorator
-    def predict_smiles_list(self, smiles_list: list[str]) -> list:
+    def predict_list(self, smiles_list: list[str]) -> list:
         return self._predict_smiles_list(smiles_list)
 
     def _predict_smiles_list(self, smiles_list: list[str]) -> list:
         results = []
         for i, smiles in tqdm.tqdm(enumerate(smiles_list)):
-            results.append(self.predict_smiles(smiles))
+            results.append(self.predict(smiles))
 
         for classifier in self.classifier_instances.values():
             classifier.on_finish()

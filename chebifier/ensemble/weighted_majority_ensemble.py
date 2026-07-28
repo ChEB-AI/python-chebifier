@@ -1,9 +1,12 @@
+import json
+import os
+
 import torch
 
-from chebifier.ensemble.base_ensemble import BaseEnsemble
+from chebifier.ensemble.voting_ensemble import VotingEnsemble
 
 
-class WMVwithPPVNPVEnsemble(BaseEnsemble):
+class WMVwithPPVNPVEnsemble(VotingEnsemble):
 
     def __init__(
         self, config_path=None, weighting_strength=1, weighting_exponent=1, **kwargs
@@ -19,6 +22,18 @@ class WMVwithPPVNPVEnsemble(BaseEnsemble):
         self.weighting_strength = weighting_strength
         self.weighting_exponent = weighting_exponent
 
+        self.model_classwise_weights = dict()
+        for model in self.models:
+            classwise_weights_path = os.path.join(
+                self.ensemble_dir, f"{model.model_name}_classwise_weights.json"
+            )
+            if os.path.exists(classwise_weights_path):
+                self.model_classwise_weights[model.model_name] = json.load(
+                    open(classwise_weights_path, encoding="utf-8")
+                )
+            else:
+                self.model_classwise_weights[model.model_name] = None
+
     def calculate_classwise_weights(self, predicted_classes):
         """
         Given the positions of predicted classes in the predictions tensor, assign weights to each class. The
@@ -30,9 +45,9 @@ class WMVwithPPVNPVEnsemble(BaseEnsemble):
         for j, model in enumerate(self.models):
             positive_weights[:, j] *= model.model_weight
             negative_weights[:, j] *= model.model_weight
-            if model.classwise_weights is None:
+            if self.model_classwise_weights[model.model_name] is None:
                 continue
-            for cls, weights in model.classwise_weights.items():
+            for cls, weights in self.model_classwise_weights[model.model_name].items():
                 if cls not in predicted_classes:
                     continue
                 ppv = (
@@ -64,7 +79,7 @@ class WMVwithPPVNPVEnsemble(BaseEnsemble):
         return positive_weights, negative_weights
 
 
-class WMVwithF1Ensemble(BaseEnsemble):
+class WMVwithF1Ensemble(VotingEnsemble):
 
     def __init__(
         self, config_path=None, weighting_strength=1, weighting_exponent=6.25, **kwargs
@@ -77,6 +92,18 @@ class WMVwithF1Ensemble(BaseEnsemble):
         self.weighting_strength = weighting_strength
         self.weighting_exponent = weighting_exponent
 
+        self.model_classwise_weights = dict()
+        for model in self.models:
+            classwise_weights_path = os.path.join(
+                self.ensemble_dir, f"{model.model_name}_classwise_weights.json"
+            )
+            if os.path.exists(classwise_weights_path):
+                self.model_classwise_weights[model.model_name] = json.load(
+                    open(classwise_weights_path, encoding="utf-8")
+                )
+            else:
+                self.model_classwise_weights[model.model_name] = None
+
     def calculate_classwise_weights(self, predicted_classes):
         """
         Given the positions of predicted classes in the predictions tensor, assign weights to each class. The
@@ -86,9 +113,9 @@ class WMVwithF1Ensemble(BaseEnsemble):
         weights_by_cls = torch.ones(len(predicted_classes), len(self.models))
         for j, model in enumerate(self.models):
             weights_by_cls[:, j] *= model.model_weight
-            if model.classwise_weights is None:
+            if self.model_classwise_weights[model.model_name] is None:
                 continue
-            for cls, weights in model.classwise_weights.items():
+            for cls, weights in self.model_classwise_weights[model.model_name].items():
                 if cls in predicted_classes:
                     if (2 * weights["TP"] + weights["FP"] + weights["FN"]) > 0:
                         f1 = (

@@ -1,5 +1,6 @@
-import json
 from abc import ABC
+
+from rdkit import Chem
 
 from .._custom_cache import modelwise_smiles_lru_cache
 
@@ -9,27 +10,20 @@ class BasePredictor(ABC):
         self,
         model_name: str,
         model_weight: int = 1,
-        classwise_weights_path: str = None,
         **kwargs,
     ):
         self.model_name = model_name
         self.model_weight = model_weight
-        if classwise_weights_path is not None:
-            self.classwise_weights = json.load(
-                open(classwise_weights_path, encoding="utf-8")
-            )
-        else:
-            self.classwise_weights = None
 
         self._description = kwargs.get("description", None)
 
     @modelwise_smiles_lru_cache.batch_decorator
-    def predict_smiles_list(self, smiles_list: list[str]) -> dict:
+    def predict_list(self, molecule_list: list[str | Chem.Mol]) -> dict:
         raise NotImplementedError()
 
-    def predict_smiles(self, smiles: str) -> dict:
+    def predict(self, molecule: str | Chem.Mol) -> dict:
         # by default, use list-based prediction
-        return self.predict_smiles_list([smiles])[0]
+        return self.predict_list([molecule])[0]
 
     @property
     def info_text(self):
