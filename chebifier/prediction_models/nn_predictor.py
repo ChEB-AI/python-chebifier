@@ -21,7 +21,7 @@ class NNPredictor(BasePredictor, ABC):
         super().__init__(model_name, **kwargs)
         self.batch_size = kwargs.get("batch_size", None)
         # compile_model will run the model in eager mode, which gives better performance, but does not return intermediate states
-        # such as attention weights. Therfore, ELECTRA attention graphs will only work with compile_model=False.
+        # such as attention weights. Therefore, ELECTRA attention graphs will only work with compile_model=False.
         compile_model = kwargs.get("compile_model", True)
         # If batch_size is not provided, it will be set to default batch size used during training in Predictor
         self.predictor: Predictor = Predictor(

@@ -2,6 +2,8 @@ import os
 
 import torch
 
+from chebifier.predict import collect_base_learner_predictions
+
 
 class EnsembleBuilder:
     """
@@ -28,6 +30,7 @@ class EnsembleBuilder:
         self.validation_data = validation_data
         self.validation_labels = validation_labels
         self.prediction_cache_dir = prediction_cache_dir
+        os.makedirs(self.prediction_cache_dir, exist_ok=True)
 
     def build_ensemble(self):
         """
@@ -38,6 +41,7 @@ class EnsembleBuilder:
 
         # Step 1: Get predictions from base learners on validation data
         validation_predictions = {}
+        classes = {}
         # get cached predictions if available, otherwise compute and cache them
         for model_name, model in self.base_learners.items():
             cache_path = os.path.join(
@@ -52,6 +56,10 @@ class EnsembleBuilder:
                     self.validation_data
                 )
                 torch.save(validation_predictions[model_name], cache_path)
+
+        validation_predictions, classes = collect_base_learner_predictions(
+            validation_predictions
+        )
 
         # Step 2: Calibrate the ensemble model using validation predictions
         self.ensemble_model.calibrate(

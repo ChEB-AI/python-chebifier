@@ -18,10 +18,10 @@ class BasePredictor(ABC):
         self._description = kwargs.get("description", None)
 
     @modelwise_smiles_lru_cache.batch_decorator
-    def predict_list(self, molecule_list: list[str | Chem.Mol]) -> dict:
+    def predict_list(self, molecule_list: list[str | Chem.Mol]) -> list[dict | None]:
         raise NotImplementedError()
 
-    def predict(self, molecule: str | Chem.Mol) -> dict:
+    def predict(self, molecule: str | Chem.Mol) -> dict | None:
         # by default, use list-based prediction
         return self.predict_list([molecule])[0]
 
