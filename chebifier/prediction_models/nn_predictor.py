@@ -10,7 +10,7 @@ from chebifier import modelwise_smiles_lru_cache
 from .base_predictor import SCORE_DTYPE, BasePredictor
 
 if TYPE_CHECKING:
-    from torch import Tensor
+    pass
 
 
 class NNPredictor(BasePredictor, ABC):
@@ -36,18 +36,16 @@ class NNPredictor(BasePredictor, ABC):
         Returns a list with the length of smiles_list, each element is
         either None (=failure) or a dictionary of classes and predicted values.
         """
-        raw_preds: Tensor = self.predictor.predict_smiles(smiles_list)
+        raw_preds = self.predictor.predict_smiles(smiles_list)
         if raw_preds is not None:
             preds = [
-                (
-                    {
-                        label: pred
-                        for label, pred in zip(
-                            self.predictor._classification_labels, raw_preds[i].tolist()
-                        )
-                    }
-                )
-                for i in range(len(smiles_list))
+                {
+                    label: pred
+                    for label, pred in zip(
+                        self.predictor._classification_labels, pred_tensor.tolist()
+                    )
+                }
+                for pred_tensor in raw_preds
             ]
             return preds
         else:
@@ -56,11 +54,13 @@ class NNPredictor(BasePredictor, ABC):
     def predict_dense(
         self, molecule_list: list[str | Chem.Mol]
     ) -> tuple[list[str], np.ndarray]:
-        raw_preds: Tensor = self.predictor.predict_smiles(molecule_list)
+        raw_preds = self.predictor.predict_smiles(molecule_list)
         if raw_preds is None:
             return [], np.full((len(molecule_list), 0), np.nan, dtype=SCORE_DTYPE)
         classes = [str(label) for label in self.predictor._classification_labels]
-        scores = raw_preds.detach().cpu().numpy().astype(SCORE_DTYPE)
+        scores = np.stack([pred.detach().cpu().numpy() for pred in raw_preds]).astype(
+            SCORE_DTYPE
+        )
         return classes, scores
 
     def calculate_results(self, batch):

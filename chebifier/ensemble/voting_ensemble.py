@@ -16,6 +16,7 @@ class VotingEnsemble(BaseEnsemble):
         super().__init__(ensemble_dir)
         self.use_confidence = use_confidence
         self.classwise_f1 = None
+        self.prediction_thresholds = None
 
     def find_best_threshold(self, predictions, val_labels_tensor):
         best_threshold = 0.5
@@ -37,11 +38,15 @@ class VotingEnsemble(BaseEnsemble):
         self.classwise_f1 = F1Score(
             task="multilabel", num_labels=validation_labels.shape[1], average=None
         )
-        prediction_thresholds = {
-            model_name: self.find_best_threshold(predictions, validation_labels)
-            for model_name, predictions in validation_predictions.items()
+        self._save_prediction_thresholds(
+            self._fit_prediction_thresholds(validation_predictions, validation_labels)
+        )
+
+    def _fit_prediction_thresholds(self, predictions, labels) -> dict[str, float]:
+        return {
+            model_name: self.find_best_threshold(model_predictions, labels)
+            for model_name, model_predictions in predictions.items()
         }
-        self._save_prediction_thresholds(prediction_thresholds)
 
     def _save_prediction_thresholds(self, thresholds: dict[str, float]):
         thresholds_path = Path(self.ensemble_dir) / "prediction_thresholds.yaml"
@@ -50,6 +55,8 @@ class VotingEnsemble(BaseEnsemble):
         print(f"Saved prediction thresholds to {thresholds_path}: {thresholds}")
 
     def _load_prediction_thresholds(self) -> dict[str, float]:
+        if self.prediction_thresholds is not None:
+            return self.prediction_thresholds
         thresholds_path = Path(self.ensemble_dir) / "prediction_thresholds.yaml"
         if thresholds_path.exists():
             with open(thresholds_path, "r", encoding="utf-8") as f:
