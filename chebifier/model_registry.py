@@ -1,8 +1,5 @@
 from chebifier.ensemble.voting_ensemble import VotingEnsemble
-from chebifier.ensemble.weighted_majority_ensemble import (
-    WMVwithF1Ensemble,
-    WMVwithPPVNPVEnsemble,
-)
+from chebifier.ensemble.weighted_majority_ensemble import WMVwithF1Ensemble
 from chebifier.prediction_models import (
     ChEBILookupPredictor,
     ChemlogPeptidesPredictor,
@@ -20,7 +17,6 @@ from chebifier.prediction_models.chemlog_predictor import (
 
 ENSEMBLES = {
     "mv": VotingEnsemble,
-    "wmv-ppvnpv": WMVwithPPVNPVEnsemble,
     "wmv-f1": WMVwithF1Ensemble,
 }
 

@@ -15,19 +15,16 @@ class VotingEnsemble(BaseEnsemble):
     ):
         super().__init__(ensemble_dir)
         self.use_confidence = use_confidence
-        self.macro_f1 = None
+        self.classwise_f1 = None
 
     def find_best_threshold(self, predictions, val_labels_tensor):
-        print(
-            f"Finding best threshold for predictions with shape {predictions.shape} and validation labels with shape {val_labels_tensor.shape}"
-        )
         best_threshold = 0.5
         best_f1 = 0.0
         for threshold in range(0, 100):
             threshold_value = threshold / 100
-            macro_f1_score = self.macro_f1(
+            macro_f1_score = self.classwise_f1(
                 predictions > threshold_value, val_labels_tensor
-            )
+            ).mean()
             if macro_f1_score > best_f1:
                 best_f1 = macro_f1_score.item()
                 best_threshold = threshold_value
@@ -37,11 +34,8 @@ class VotingEnsemble(BaseEnsemble):
         print(
             f"Calibrating {self.ensemble_name} with {len(validation_predictions)} base learners..."
         )
-        self.macro_f1 = F1Score(
-            task="multilabel", num_labels=validation_labels.shape[1], average="macro"
-        )
-        print(
-            f"Validation labels: {validation_labels.shape}, Validation predictions: {validation_predictions[list(validation_predictions.keys())[0]].shape}"
+        self.classwise_f1 = F1Score(
+            task="multilabel", num_labels=validation_labels.shape[1], average=None
         )
         prediction_thresholds = {
             model_name: self.find_best_threshold(predictions, validation_labels)
@@ -64,6 +58,10 @@ class VotingEnsemble(BaseEnsemble):
             raise FileNotFoundError(
                 f"Prediction thresholds file not found in ensemble directory: {self.ensemble_dir}. Please calibrate the ensemble first."
             )
+
+    def calculate_trust(self, predictions: dict[str, torch.Tensor]) -> torch.Tensor:
+        # No trust for MV, only used in WMV
+        return 1
 
     def predict(self, test_predictions: dict[str, torch.Tensor]):
         """
@@ -112,11 +110,12 @@ class VotingEnsemble(BaseEnsemble):
         else:
             confidence = torch.ones_like(predictions_tensor)
 
+        trust = self.calculate_trust(test_predictions)
         # Calculate weighted predictions using broadcasting
         # predictions shape: (num_molecules, num_classes, num_models)
         # weights shape: (num_classes, num_models)
-        positive_weighted = positive_mask.float() * confidence
-        negative_weighted = negative_mask.float() * confidence
+        positive_weighted = positive_mask.float() * confidence * trust
+        negative_weighted = negative_mask.float() * confidence * trust
 
         # Sum over models dimension
         positive_sum = positive_weighted.sum(
