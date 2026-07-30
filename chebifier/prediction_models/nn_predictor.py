@@ -1,11 +1,13 @@
 from abc import ABC
 from typing import TYPE_CHECKING
 
+import numpy as np
 from chebai.result.prediction import Predictor
+from rdkit import Chem
 
 from chebifier import modelwise_smiles_lru_cache
 
-from .base_predictor import BasePredictor
+from .base_predictor import SCORE_DTYPE, BasePredictor
 
 if TYPE_CHECKING:
     from torch import Tensor
@@ -50,6 +52,16 @@ class NNPredictor(BasePredictor, ABC):
             return preds
         else:
             return [None for _ in smiles_list]
+
+    def predict_dense(
+        self, molecule_list: list[str | Chem.Mol]
+    ) -> tuple[list[str], np.ndarray]:
+        raw_preds: Tensor = self.predictor.predict_smiles(molecule_list)
+        if raw_preds is None:
+            return [], np.full((len(molecule_list), 0), np.nan, dtype=SCORE_DTYPE)
+        classes = [str(label) for label in self.predictor._classification_labels]
+        scores = raw_preds.detach().cpu().numpy().astype(SCORE_DTYPE)
+        return classes, scores
 
     def calculate_results(self, batch):
         collator = self.predictor._dm.reader.COLLATOR()

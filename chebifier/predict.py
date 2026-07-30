@@ -21,17 +21,26 @@ def apply_inconsistency_resolution(smoother, class_names, aggregated_predictions
     return aggregated_predictions
 
 
+def save_dense_predictions(path: str, classes: list[str], scores: np.ndarray) -> None:
+    np.savez_compressed(path, classes=np.array(classes), scores=scores)
+
+
+def load_dense_predictions(path: str) -> tuple[list[str], np.ndarray]:
+    with np.load(path) as data:
+        return [str(cls) for cls in data["classes"]], data["scores"]
+
+
 def collect_base_learner_predictions(
-    predictions: dict[str, list[dict | None]],
+    predictions: dict[str, tuple[list[str], np.ndarray]],
     classes: Optional[list[str]] = None,
 ) -> (dict[str, torch.Tensor], list[str]):
     """
     Collect predictions from base learners into a single dictionary.
 
     Args:
-        predictions (dict): A dictionary where keys are model names and values are lists of predictions.
-            Assumes those lists have the same length and each entry in the list is either None or a dict
-            mapping class labels to predicted values.
+        predictions (dict): A dictionary where keys are model names and values are
+            (class labels, score matrix) pairs as returned by BasePredictor.predict_dense.
+            Assumes all score matrices have the same number of rows.
         classes (Optional[list]): Column space to map the predictions onto. If None (the default), the
             union of all classes reported by the base learners is used. Pass an explicit list to align
             the predictions with a fixed label set (e.g. the labels of an evaluation dataset) - base
@@ -41,78 +50,51 @@ def collect_base_learner_predictions(
 
     Returns:
         dict: A dictionary where keys are model names and values are tensors of predictions with shape (num_samples, num_classes).
-            If a prediction is None, it will be replaced with NaN.
+            If a prediction is missing, it will be NaN.
         ensemble_classes (list): A list of class labels that are present in the predictions.
     """
-    collected_predictions = {}
-    ensemble_classes = set()
-    n_samples = -1
     print(f"Collecting base learner predictions from {len(predictions)} models...")
-    # step 1: collect classes
-    # Base learners typically return the same label set for every sample, so we only
-    # touch the class set when the label set actually changes from one sample to the next.
-    for model_name, model_predictions in predictions.items():
-        if classes is None:
-            previous_keys = None
-            for pred in model_predictions:
-                if pred:
-                    keys = tuple(pred)
-                    if keys != previous_keys:
-                        ensemble_classes.update(keys)
-                        previous_keys = keys
+    n_samples = -1
+    for model_name, (_, scores) in predictions.items():
         if n_samples == -1:
-            n_samples = len(model_predictions)
+            n_samples = scores.shape[0]
         else:
-            assert n_samples == len(
-                model_predictions
-            ), f"All prediction lists must have the same length. Model {model_name} has {len(model_predictions)} predictions, expected {n_samples}."
+            assert (
+                n_samples == scores.shape[0]
+            ), f"All prediction matrices must have the same length. Model {model_name} has {scores.shape[0]} predictions, expected {n_samples}."
+
     if classes is None:
-        ensemble_classes = sorted(ensemble_classes)  # Sort for consistent ordering
+        ensemble_classes = sorted(
+            {cls for model_classes, _ in predictions.values() for cls in model_classes}
+        )
     else:
         ensemble_classes = list(classes)
     cls_to_idx = {cls: idx for idx, cls in enumerate(ensemble_classes)}
-    # step 2: map predictions to tensors
-    # Filled row-wise via numpy fancy indexing: one vectorised write per sample instead
-    # of one Python-level tensor assignment per predicted class. The column indices are
-    # reused as long as consecutive samples share the same label set (see step 1).
-    for model_name, model_predictions in predictions.items():
-        # Samples without a prediction (and classes the model does not cover) stay NaN
-        predictions_array = np.full(
-            (n_samples, len(ensemble_classes)), np.nan, dtype=np.float32
-        )
-        previous_keys = None
-        columns = None
-        # positions of the kept values within pred.values(), None if nothing is dropped
-        kept_positions = None
-        for i, pred in enumerate(model_predictions):
-            if pred:
-                keys = tuple(pred)
-                if keys != previous_keys:
-                    kept = [
-                        (position, cls_to_idx[cls])
-                        for position, cls in enumerate(keys)
-                        if cls in cls_to_idx
-                    ]
-                    columns = np.fromiter(
-                        (column for _, column in kept), dtype=np.intp, count=len(kept)
-                    )
-                    kept_positions = (
-                        None
-                        if len(kept) == len(keys)
-                        else np.fromiter(
-                            (position for position, _ in kept),
-                            dtype=np.intp,
-                            count=len(kept),
-                        )
-                    )
-                    previous_keys = keys
-                values = np.fromiter(pred.values(), dtype=np.float32, count=len(pred))
-                predictions_array[i, columns] = (
-                    values if kept_positions is None else values[kept_positions]
-                )
-        collected_predictions[model_name] = torch.from_numpy(predictions_array)
 
-    return collected_predictions, list(ensemble_classes)
+    collected_predictions = {}
+    for model_name, (model_classes, scores) in predictions.items():
+        if model_classes == ensemble_classes:
+            collected_predictions[model_name] = torch.from_numpy(
+                scores.astype(np.float32)
+            )
+            continue
+        shared = [
+            (source, cls_to_idx[cls])
+            for source, cls in enumerate(model_classes)
+            if cls in cls_to_idx
+        ]
+        mapped = np.full((n_samples, len(ensemble_classes)), np.nan, dtype=np.float32)
+        if shared:
+            source_idx = np.fromiter(
+                (source for source, _ in shared), dtype=np.intp, count=len(shared)
+            )
+            target_idx = np.fromiter(
+                (target for _, target in shared), dtype=np.intp, count=len(shared)
+            )
+            mapped[:, target_idx] = scores[:, source_idx]
+        collected_predictions[model_name] = torch.from_numpy(mapped)
+
+    return collected_predictions, ensemble_classes
 
 
 def predict(
@@ -144,18 +126,16 @@ def predict(
     test_predictions = {}
     for model_name, model in base_learners.items():
         if prediction_cache_dir is None:
-            test_predictions[model_name] = model.predict_list(molecules)
+            test_predictions[model_name] = model.predict_dense(molecules)
         else:
             cache_path = os.path.join(
-                prediction_cache_dir, f"{model_name}_test_predictions.pt"
+                prediction_cache_dir, f"{model_name}_test_predictions.npz"
             )
             if os.path.exists(cache_path):
-                test_predictions[model_name] = torch.load(
-                    cache_path, weights_only=False
-                )
+                test_predictions[model_name] = load_dense_predictions(cache_path)
             else:
-                test_predictions[model_name] = model.predict_list(molecules)
-                torch.save(test_predictions[model_name], cache_path)
+                test_predictions[model_name] = model.predict_dense(molecules)
+                save_dense_predictions(cache_path, *test_predictions[model_name])
 
     test_predictions, predicted_classes = collect_base_learner_predictions(
         test_predictions

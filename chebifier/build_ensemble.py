@@ -2,7 +2,11 @@ import os
 
 import torch
 
-from chebifier.predict import collect_base_learner_predictions
+from chebifier.predict import (
+    collect_base_learner_predictions,
+    load_dense_predictions,
+    save_dense_predictions,
+)
 
 
 class EnsembleBuilder:
@@ -46,19 +50,17 @@ class EnsembleBuilder:
         # get cached predictions if available, otherwise compute and cache them
         for model_name, model in self.base_learners.items():
             cache_path = os.path.join(
-                self.prediction_cache_dir, f"{model_name}_validation_predictions.pt"
+                self.prediction_cache_dir, f"{model_name}_validation_predictions.npz"
             )
             if os.path.exists(cache_path):
                 print(f"{model_name} validation predictions found in cache, loading...")
-                validation_predictions[model_name] = torch.load(
-                    cache_path, weights_only=False
-                )
+                validation_predictions[model_name] = load_dense_predictions(cache_path)
             else:
                 print(f"Computing {model_name} validation predictions...")
-                validation_predictions[model_name] = model.predict_list(
+                validation_predictions[model_name] = model.predict_dense(
                     self.validation_data
                 )
-                torch.save(validation_predictions[model_name], cache_path)
+                save_dense_predictions(cache_path, *validation_predictions[model_name])
 
         # Base learners may be trained on different label sets (e.g. ChEBI25 vs. ChEBI25_3_STAR),
         # so their union does not match the labels we calibrate against. Map every base learner

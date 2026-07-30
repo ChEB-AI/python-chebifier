@@ -35,7 +35,7 @@ class WMVwithF1Ensemble(VotingEnsemble):
             )
             f1_path = Path(self.ensemble_dir) / f"{model_name}_classwise_f1.txt"
             with open(f1_path, "w+") as f:
-                f.write("\n".join(f1.tolist()))
+                f.writelines(f"{x}\n" for x in f1.tolist())
             print(
                 f"Saved class-wise F1 scores to {f1_path}: {len(f1.tolist())} classes (macro-f1: {f1.mean().item():.4f})."
             )
