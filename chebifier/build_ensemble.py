@@ -13,7 +13,8 @@ class EnsembleBuilder:
         base_learners (dict[str, BasePredictor]): A dictionary of base learner models.
         ensemble_model (BaseEnsemble): An instance of a BaseEnsemble model.
         validation_data (list[Chem.Mol]): Validation data for calibration.
-        validation_labels (torch.Tensor): Validation labels for calibration.
+        validation_labels (pd.DataFrame): Validation labels for calibration, one column per class.
+            The column names define the label set the base learner predictions are mapped onto.
         prediction_cache_dir (str): Directory to cache predictions.
     """
 
@@ -48,22 +49,34 @@ class EnsembleBuilder:
                 self.prediction_cache_dir, f"{model_name}_validation_predictions.pt"
             )
             if os.path.exists(cache_path):
+                print(f"{model_name} validation predictions found in cache, loading...")
                 validation_predictions[model_name] = torch.load(
                     cache_path, weights_only=False
                 )
             else:
+                print(f"Computing {model_name} validation predictions...")
                 validation_predictions[model_name] = model.predict_list(
                     self.validation_data
                 )
                 torch.save(validation_predictions[model_name], cache_path)
 
+        # Base learners may be trained on different label sets (e.g. ChEBI25 vs. ChEBI25_3_STAR),
+        # so their union does not match the labels we calibrate against. Map every base learner
+        # onto the label set of the validation data instead.
+        label_classes = [str(cls) for cls in self.validation_labels.columns]
         validation_predictions, classes = collect_base_learner_predictions(
-            validation_predictions
+            validation_predictions, classes=label_classes
+        )
+        validation_labels = torch.from_numpy(
+            self.validation_labels.to_numpy(dtype=bool)
         )
 
+        print(
+            f"Collected validation predictions from {len(validation_predictions)} base learners with {len(classes)} unique classes. Calibrating ensemble model..."
+        )
         # Step 2: Calibrate the ensemble model using validation predictions
         self.ensemble_model.calibrate(
-            validation_predictions, self.validation_data, self.validation_labels
+            validation_predictions, self.validation_data, validation_labels
         )
 
         return self.ensemble_model

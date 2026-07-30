@@ -4,6 +4,7 @@
 import os
 from typing import Optional
 
+import numpy as np
 import torch
 from rdkit import Chem
 
@@ -22,6 +23,7 @@ def apply_inconsistency_resolution(smoother, class_names, aggregated_predictions
 
 def collect_base_learner_predictions(
     predictions: dict[str, list[dict | None]],
+    classes: Optional[list[str]] = None,
 ) -> (dict[str, torch.Tensor], list[str]):
     """
     Collect predictions from base learners into a single dictionary.
@@ -30,6 +32,12 @@ def collect_base_learner_predictions(
         predictions (dict): A dictionary where keys are model names and values are lists of predictions.
             Assumes those lists have the same length and each entry in the list is either None or a dict
             mapping class labels to predicted values.
+        classes (Optional[list]): Column space to map the predictions onto. If None (the default), the
+            union of all classes reported by the base learners is used. Pass an explicit list to align
+            the predictions with a fixed label set (e.g. the labels of an evaluation dataset) - base
+            learners may be trained on different label sets, so the union does not necessarily match the
+            labels you want to compare against. Classes predicted by a base learner but missing from
+            `classes` are dropped, classes that no base learner covers stay NaN.
 
     Returns:
         dict: A dictionary where keys are model names and values are tensors of predictions with shape (num_samples, num_classes).
@@ -39,30 +47,70 @@ def collect_base_learner_predictions(
     collected_predictions = {}
     ensemble_classes = set()
     n_samples = -1
+    print(f"Collecting base learner predictions from {len(predictions)} models...")
     # step 1: collect classes
+    # Base learners typically return the same label set for every sample, so we only
+    # touch the class set when the label set actually changes from one sample to the next.
     for model_name, model_predictions in predictions.items():
-        for pred in model_predictions:
-            if pred is not None:
-                ensemble_classes.update(pred.keys())
+        if classes is None:
+            previous_keys = None
+            for pred in model_predictions:
+                if pred:
+                    keys = tuple(pred)
+                    if keys != previous_keys:
+                        ensemble_classes.update(keys)
+                        previous_keys = keys
         if n_samples == -1:
             n_samples = len(model_predictions)
         else:
             assert n_samples == len(
                 model_predictions
             ), f"All prediction lists must have the same length. Model {model_name} has {len(model_predictions)} predictions, expected {n_samples}."
-    ensemble_classes = sorted(ensemble_classes)  # Sort for consistent ordering
+    if classes is None:
+        ensemble_classes = sorted(ensemble_classes)  # Sort for consistent ordering
+    else:
+        ensemble_classes = list(classes)
     cls_to_idx = {cls: idx for idx, cls in enumerate(ensemble_classes)}
     # step 2: map predictions to tensors
+    # Filled row-wise via numpy fancy indexing: one vectorised write per sample instead
+    # of one Python-level tensor assignment per predicted class. The column indices are
+    # reused as long as consecutive samples share the same label set (see step 1).
     for model_name, model_predictions in predictions.items():
-        # Replace None values with NaN
-        model_predictions = torch.zeros((n_samples, len(ensemble_classes))) * float(
-            "nan"
+        # Samples without a prediction (and classes the model does not cover) stay NaN
+        predictions_array = np.full(
+            (n_samples, len(ensemble_classes)), np.nan, dtype=np.float32
         )
+        previous_keys = None
+        columns = None
+        # positions of the kept values within pred.values(), None if nothing is dropped
+        kept_positions = None
         for i, pred in enumerate(model_predictions):
-            if pred is not None:
-                for cls, value in pred.items():
-                    model_predictions[i, cls_to_idx[cls]] = value
-        collected_predictions[model_name] = model_predictions
+            if pred:
+                keys = tuple(pred)
+                if keys != previous_keys:
+                    kept = [
+                        (position, cls_to_idx[cls])
+                        for position, cls in enumerate(keys)
+                        if cls in cls_to_idx
+                    ]
+                    columns = np.fromiter(
+                        (column for _, column in kept), dtype=np.intp, count=len(kept)
+                    )
+                    kept_positions = (
+                        None
+                        if len(kept) == len(keys)
+                        else np.fromiter(
+                            (position for position, _ in kept),
+                            dtype=np.intp,
+                            count=len(kept),
+                        )
+                    )
+                    previous_keys = keys
+                values = np.fromiter(pred.values(), dtype=np.float32, count=len(pred))
+                predictions_array[i, columns] = (
+                    values if kept_positions is None else values[kept_positions]
+                )
+        collected_predictions[model_name] = torch.from_numpy(predictions_array)
 
     return collected_predictions, list(ensemble_classes)
 

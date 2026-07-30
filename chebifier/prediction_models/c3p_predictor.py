@@ -42,17 +42,29 @@ class C3PPredictor(BasePredictor):
                 )
             )
 
+        # Look up the position of each SMILES via a dict instead of scanning smiles_list
+        # for every result (C3P returns one result per class and molecule, so the scan
+        # made reformatting quadratic in the number of molecules). Repeated SMILES map to
+        # all of their positions, which list.index could not do (it always returned the
+        # first one, leaving the later rows without any predictions).
+        indices_by_smiles: dict[str, list[int]] = {}
+        for idx, smiles in enumerate(smiles_list):
+            indices_by_smiles.setdefault(smiles, []).append(idx)
+
         result_reformatted = [dict() for _ in range(len(smiles_list))]
         for result in tqdm.tqdm(result_list, desc="Reformatting C3P results"):
             chebi_id = result.class_id.split(":")[1]
-            result_reformatted[smiles_list.index(result.input_smiles)][
-                chebi_id
-            ] = result.is_match
             if result.is_match and self.chebi_graph is not None:
-                for parent in list(self.chebi_graph.predecessors(chebi_id)):
-                    result_reformatted[smiles_list.index(result.input_smiles)][
-                        str(parent)
-                    ] = 1
+                parents = [
+                    str(parent) for parent in self.chebi_graph.predecessors(chebi_id)
+                ]
+            else:
+                parents = []
+            for idx in indices_by_smiles[result.input_smiles]:
+                preds_i = result_reformatted[idx]
+                preds_i[chebi_id] = result.is_match
+                for parent in parents:
+                    preds_i[parent] = 1
         return result_reformatted
 
     def explain_smiles(self, smiles):

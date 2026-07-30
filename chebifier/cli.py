@@ -295,7 +295,4 @@ def predict(
 
 
 if __name__ == "__main__":
-    # cli()
-    load_dataset(
-        os.path.join("data", "chebi_v252", "ChEBI25", "processed"), split="validation"
-    )
+    cli()

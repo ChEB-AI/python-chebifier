@@ -18,7 +18,9 @@ class VotingEnsemble(BaseEnsemble):
         self.macro_f1 = None
 
     def find_best_threshold(self, predictions, val_labels_tensor):
-
+        print(
+            f"Finding best threshold for predictions with shape {predictions.shape} and validation labels with shape {val_labels_tensor.shape}"
+        )
         best_threshold = 0.5
         best_f1 = 0.0
         for threshold in range(0, 100):
@@ -32,10 +34,15 @@ class VotingEnsemble(BaseEnsemble):
         return best_threshold
 
     def calibrate(self, validation_predictions, validation_data, validation_labels):
-        self.macro_f1 = F1Score(
-            task="multilabel", num_labels=len(validation_labels), average="macro"
+        print(
+            f"Calibrating {self.ensemble_name} with {len(validation_predictions)} base learners..."
         )
-
+        self.macro_f1 = F1Score(
+            task="multilabel", num_labels=validation_labels.shape[1], average="macro"
+        )
+        print(
+            f"Validation labels: {validation_labels.shape}, Validation predictions: {validation_predictions[list(validation_predictions.keys())[0]].shape}"
+        )
         prediction_thresholds = {
             model_name: self.find_best_threshold(predictions, validation_labels)
             for model_name, predictions in validation_predictions.items()
@@ -46,6 +53,7 @@ class VotingEnsemble(BaseEnsemble):
         thresholds_path = Path(self.ensemble_dir) / "prediction_thresholds.yaml"
         with open(thresholds_path, "w+", encoding="utf-8") as f:
             yaml.dump(thresholds, f)
+        print(f"Saved prediction thresholds to {thresholds_path}: {thresholds}")
 
     def _load_prediction_thresholds(self) -> dict[str, float]:
         thresholds_path = Path(self.ensemble_dir) / "prediction_thresholds.yaml"
