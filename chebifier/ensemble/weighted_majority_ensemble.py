@@ -15,13 +15,17 @@ class WMVwithF1Ensemble(VotingEnsemble):
         self,
         ensemble_dir: str,
         use_confidence: bool = True,
-        weighting_strength=1,
-        weighting_exponent=1,
+        weighting_strength=None,
+        weighting_exponent=None,
         **kwargs,
     ):
         """WMV ensemble that weights models based on their class-wise F1 scores. For each class, the weight is calculated as:
         weight = model_weight * (weighting_strength * F1 + (1 - weighting_strength)) ** weighting_exponent
         where F1 is the class-specific F1 score ("trust") of the model on the validation set.
+
+        weighting_strength and weighting_exponent default to the optimal values determined during
+        calibration (best_hyperparameters.csv in the ensemble directory), falling back to 1 if the
+        ensemble has not been calibrated. Values passed here take precedence over both.
         """
         super().__init__(ensemble_dir, use_confidence, **kwargs)
         self.weighting_strength = weighting_strength
@@ -66,9 +70,26 @@ class WMVwithF1Ensemble(VotingEnsemble):
                 f"Class-wise F1 scores file not found for model {model_name} in ensemble directory: {self.ensemble_dir}. Please calibrate the ensemble first."
             )
 
+    def _load_hyperparameters(self) -> tuple[float, int]:
+        """Hyperparameters set explicitly take precedence, otherwise the optimal values found during
+        calibration are used (falling back to 1 if the ensemble has not been calibrated).
+        """
+        best = {}
+        best_path = Path(self.ensemble_dir) / "best_hyperparameters.csv"
+        if best_path.exists():
+            best = pd.read_csv(best_path).iloc[0].to_dict()
+        strength = self.weighting_strength
+        if strength is None:
+            strength = float(best.get("weighting_strength", 1))
+        exponent = self.weighting_exponent
+        if exponent is None:
+            exponent = int(best.get("weighting_exponent", 1))
+        return strength, exponent
+
     def calculate_trust(self, predictions: dict[str, torch.Tensor]) -> torch.Tensor:
         # Calculate trust based on class-wise F1 scores for each model
         # target shape: (num_molecules, num_classes, num_models)
+        weighting_strength, weighting_exponent = self._load_hyperparameters()
         num_models = len(predictions)
         num_molecules = list(predictions.values())[0].shape[0]
         num_classes = list(predictions.values())[0].shape[1]
@@ -85,8 +106,8 @@ class WMVwithF1Ensemble(VotingEnsemble):
             # Expand classwise_f1 to match the shape of trust_tensor for broadcasting
             classwise_f1 = classwise_f1.unsqueeze(0).expand(num_molecules, -1)
             trust_tensor[:, :, model_idx] = (
-                self.weighting_strength * classwise_f1 + (1 - self.weighting_strength)
-            ) ** self.weighting_exponent
+                weighting_strength * classwise_f1 + (1 - weighting_strength)
+            ) ** weighting_exponent
         return trust_tensor
 
     def _build_folds(self, validation_predictions, validation_labels):
