@@ -36,31 +36,36 @@ class NNPredictor(BasePredictor, ABC):
         Returns a list with the length of smiles_list, each element is
         either None (=failure) or a dictionary of classes and predicted values.
         """
-        raw_preds = self.predictor.predict_smiles(smiles_list)
-        if raw_preds is not None:
-            preds = [
-                {
+        raw_preds = self.predictor.predict_molecules(smiles_list)
+        if raw_preds is None:
+            return [None for _ in smiles_list]
+        return [
+            (
+                None
+                if pred_tensor is None
+                else {
                     label: pred
                     for label, pred in zip(
                         self.predictor._classification_labels, pred_tensor.tolist()
                     )
                 }
-                for pred_tensor in raw_preds
-            ]
-            return preds
-        else:
-            return [None for _ in smiles_list]
+            )
+            for pred_tensor in raw_preds
+        ]
 
     def predict_dense(
         self, molecule_list: list[str | Chem.Mol]
     ) -> tuple[list[str], np.ndarray]:
-        raw_preds = self.predictor.predict_smiles(molecule_list)
-        if raw_preds is None:
-            return [], np.full((len(molecule_list), 0), np.nan, dtype=SCORE_DTYPE)
+        raw_preds = self.predictor.predict_molecules(molecule_list)
         classes = [str(label) for label in self.predictor._classification_labels]
-        scores = np.stack([pred.detach().cpu().numpy() for pred in raw_preds]).astype(
-            SCORE_DTYPE
-        )
+        # molecules the model could not process stay NaN, so the ensemble skips this
+        # model for those rows only (see dicts_to_dense in base_predictor.py)
+        scores = np.full((len(molecule_list), len(classes)), np.nan, dtype=SCORE_DTYPE)
+        if raw_preds is None:
+            return classes, scores
+        for idx, pred in enumerate(raw_preds):
+            if pred is not None:
+                scores[idx] = pred.detach().cpu().numpy()
         return classes, scores
 
     def calculate_results(self, batch):
