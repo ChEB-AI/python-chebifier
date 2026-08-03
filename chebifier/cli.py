@@ -5,7 +5,7 @@ from typing import Literal
 import click
 import pandas as pd
 import yaml
-from rdkit import Chem
+from chebi_utils.read_molecule import smiles_or_inchi_to_mol
 
 from chebifier.build_ensemble import EnsembleBuilder
 from chebifier.check_env import check_package_installed
@@ -22,24 +22,7 @@ def read_molecules(molecules, molecule_file):
         with open(molecule_file, "r", encoding="utf-8") as f:
             raw_inputs.extend([line.strip() for line in f if line.strip()])
 
-    mol_list = []
-    for raw_input in raw_inputs:
-        try:
-            if raw_input.startswith("InChI="):
-                mol = Chem.MolFromInchi(raw_input, sanitize=False)
-                if mol is None:
-                    click.echo(f"Failed to parse InChI: {raw_input}")
-                    mol_list.append(None)
-                mol_list.append(mol)
-            elif Chem.MolFromSmiles(raw_input, sanitize=False) is None:
-                click.echo(f"Failed to parse SMILES: {raw_input}")
-                mol_list.append(None)
-            else:
-                mol_list.append(Chem.MolFromSmiles(raw_input, sanitize=False))
-        except Exception as e:
-            click.echo(f"Error parsing molecule '{raw_input}': {e}.")
-            mol_list.append(None)
-    return mol_list
+    return [smiles_or_inchi_to_mol(raw_input) for raw_input in raw_inputs]
 
 
 def build_base_learners(ensemble_config):
