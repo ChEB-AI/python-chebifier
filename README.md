@@ -6,14 +6,6 @@ A web application for Chebifier is available at https://chebifier.hastingslab.or
 
 ## Installation
 
-Not all models can be installed automatically at the moment:
-- `chebai-graph` and its dependencies. To install them, follow
-the instructions in the [chebai-graph repository](https://github.com/ChEB-AI/python-chebai-graph).
-- `chemlog-extra` can be installed with `pip install git+https://github.com/ChEB-AI/chemlog-extra.git`
-- The automatically installed version of `c3p` may not work under Windows. If you want to run chebifier on Windows, we
-recommend using this forked version: `pip install git+https://github.com/sfluegel05/c3p.git`
-
-
 You can get the package from PyPI:
 ```bash
 pip install chebifier
@@ -27,6 +19,17 @@ cd python-chebifier
 
 # Install the package
 pip install -e .
+```
+
+By default, the models of the ensemble are not installed. 
+You can install them with the `[models]` extra:
+```bash
+pip install chebifier[models]
+```
+
+The Graph Neural Networks depend on `torch_geometric` and `torch_scatter` which you need to install separately ([depending on your CUDA version](https://pytorch-geometric.readthedocs.io/en/latest/install/installation.html)). E.g.
+```bash
+pip install torch==2.12.0 torch_scatter torch_geometric -f https://data.pyg.org/whl/torch-2.12.0+cpu.html
 ```
 
 ## Usage
