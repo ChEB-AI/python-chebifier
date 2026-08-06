@@ -14,10 +14,20 @@ from chebifier.prediction_models.base_predictor import BasePredictor
 from chebifier.utils import get_disjoint_files, load_chebi_graph
 
 
-def apply_inconsistency_resolution(smoother, class_names, aggregated_predictions):
+def apply_inconsistency_resolution(
+    smoother, class_names, aggregated_predictions, batch_size: int = 16
+):
+    """Resolve inconsistencies in batches - the smoother materialises a
+    (batch_size, n_classes, n_classes) tensor, which does not fit into memory for a whole dataset split.
+    """
     smoother.set_label_names(class_names)
-    smooth_net_score = smoother(aggregated_predictions["net_score"])
-    aggregated_predictions["net_score"] = smooth_net_score
+    net_score = aggregated_predictions["net_score"]
+    aggregated_predictions["net_score"] = torch.cat(
+        [
+            smoother(net_score[start : start + batch_size])
+            for start in range(0, net_score.shape[0], batch_size)
+        ]
+    )
     return aggregated_predictions
 
 
@@ -104,6 +114,8 @@ def predict(
     prediction_cache_dir: Optional[str] = None,
     resolve_inconsistencies: bool = True,
     decision_threshold: float = 0,
+    classes: Optional[list[str]] = None,
+    split: str = "test",
 ) -> dict:
     """
     Get end-to-end predictions from base learners and an ensemble model.
@@ -117,6 +129,10 @@ def predict(
             -> if the molecules change, you have to empty the cache or provide a new cache directory).
         resolve_inconsistencies (bool): Whether to resolve inconsistencies in the aggregated predictions.
         decision_threshold (float): Threshold for class decisions based on net score. Default is 0.
+        classes (Optional[list[str]]): Column space to map the base learner predictions onto, see
+            collect_base_learner_predictions. If None (the default), the union of all classes is used.
+        split (str): Name of the dataset split, used to separate cached base learner predictions of
+            different splits within the same cache directory.
 
     Returns:
         dict: A dictionary containing the final predictions and optionally the smoothed predictions.
@@ -129,7 +145,7 @@ def predict(
             test_predictions[model_name] = model.predict_dense(molecules)
         else:
             cache_path = os.path.join(
-                prediction_cache_dir, f"{model_name}_test_predictions.npz"
+                prediction_cache_dir, f"{model_name}_{split}_predictions.npz"
             )
             if os.path.exists(cache_path):
                 test_predictions[model_name] = load_dense_predictions(cache_path)
@@ -138,11 +154,11 @@ def predict(
                 save_dense_predictions(cache_path, *test_predictions[model_name])
 
     test_predictions, predicted_classes = collect_base_learner_predictions(
-        test_predictions
+        test_predictions, classes=classes
     )
 
     # Step 2: Get aggregated predictions from the ensemble model
-    aggregated_predictions = ensemble_model.predict(test_predictions)
+    aggregated_predictions = ensemble_model.predict(test_predictions, molecules)
     # net_score, has_valid_predictions, intermediate_results_dict
 
     # Step 3: Optionally resolve inconsistencies in the aggregated predictions

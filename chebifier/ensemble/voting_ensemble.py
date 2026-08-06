@@ -21,7 +21,7 @@ class VotingEnsemble(BaseEnsemble):
     def find_best_threshold(self, predictions, val_labels_tensor):
         best_threshold = 0.5
         best_f1 = 0.0
-        for threshold in range(0, 100):
+        for threshold in range(1, 100):
             threshold_value = threshold / 100
             macro_f1_score = self.classwise_f1(
                 predictions > threshold_value, val_labels_tensor
@@ -70,7 +70,7 @@ class VotingEnsemble(BaseEnsemble):
         # No trust for MV, only used in WMV
         return 1
 
-    def predict(self, test_predictions: dict[str, torch.Tensor]):
+    def predict(self, test_predictions: dict[str, torch.Tensor], molecules=None):
         """
         Aggregates predictions from multiple models using weighted majority voting.
         weights are only the self-reported confidence (=difference between prediction and threshold). If set to false, all models are weighted equally.
@@ -110,9 +110,12 @@ class VotingEnsemble(BaseEnsemble):
         ) & valid_predictions
 
         if self.use_confidence:
-            confidence = 2 * torch.abs(
-                predictions_tensor.nan_to_num()
-                - threshold_mask.unsqueeze(0).unsqueeze(0)
+            threshold = threshold_mask.unsqueeze(0).unsqueeze(0)
+            scores = predictions_tensor.nan_to_num()
+            confidence = torch.where(
+                scores < threshold,
+                (threshold - scores) / threshold,
+                (scores - threshold) / (1 - threshold),
             )
         else:
             confidence = torch.ones_like(predictions_tensor)

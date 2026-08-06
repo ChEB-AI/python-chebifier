@@ -17,7 +17,7 @@ def load_chebi_graph(filename=None):
             {
                 "repo_id": "chebai/chebifier",
                 "repo_type": "dataset",
-                "files": {"f": "chebi_graph.pkl"},
+                "files": {"f": "chebi_graph_v252.pkl"},
             }
         )["f"]
     else:

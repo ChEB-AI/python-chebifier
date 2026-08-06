@@ -3,6 +3,7 @@ import os
 from typing import Literal
 
 import click
+import numpy as np
 import pandas as pd
 import yaml
 from chebi_utils.read_molecule import smiles_or_inchi_to_mol
@@ -178,11 +179,17 @@ def build(
     help="Resolve inconsistencies in the aggregated predictions (default: True)",
 )
 @click.option(
+    "--split",
+    type=click.Choice(["validation", "test"]),
+    default="test",
+    help="Dataset split to evaluate on (default: test)",
+)
+@click.option(
     "--output",
     "-o",
     type=click.Path(),
     default=None,
-    help="Output file to save the evaluation results (optional)",
+    help="Output file for the ensemble predictions (default: <ensemble-dir>/<split>_predictions.npz)",
 )
 def evaluate(
     ensemble_config,
@@ -191,26 +198,41 @@ def evaluate(
     prediction_cache_dir,
     data_path,
     resolve_inconsistencies,
+    split,
     output,
 ):
-    """Evaluate an ensemble on the ChEBI test set."""
+    """Store the predictions of an ensemble on a ChEBI dataset split."""
     base_learners = build_base_learners(ensemble_config)
     ensemble_model = ENSEMBLES[ensemble_type](ensemble_dir)
 
     # TODO: Hugging Face support
-    test_data, test_labels = load_dataset(data_path, split="test")
+    eval_data, eval_labels = load_dataset(data_path, split=split)
 
     predictions = predict_molecules(
         base_learners,
         ensemble_model,
-        test_data,
+        eval_data,
         prediction_cache_dir=prediction_cache_dir,
         resolve_inconsistencies=resolve_inconsistencies,
+        classes=[str(cls) for cls in eval_labels.columns],
+        split=split,
     )
 
-    print(f"Predictions: {predictions}")
-
-    # TODO: compare predictions to test_labels, report metrics and save them to output
+    if output is None:
+        output = os.path.join(ensemble_dir, f"{split}_predictions.npz")
+    os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
+    np.savez_compressed(
+        output,
+        classes=np.array(predictions["predicted_classes"]),
+        scores=predictions["net_score"].numpy(),
+        decisions=predictions["class_decisions"].numpy(),
+        has_valid_predictions=predictions["has_valid_predictions"].numpy(),
+    )
+    print(
+        f"Saved {ensemble_type} predictions for split '{split}' "
+        f"({predictions['class_decisions'].shape[0]} molecules, {len(predictions['predicted_classes'])} classes, "
+        f"{int(predictions['complete_failure'].sum())} molecules without any valid prediction) to {output}."
+    )
 
 
 @cli.command()

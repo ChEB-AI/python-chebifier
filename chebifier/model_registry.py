@@ -1,3 +1,5 @@
+from chebifier.ensemble.dynamic_selection_ensemble import DynamicSelectionEnsemble
+from chebifier.ensemble.learning_to_rank_ensemble import LearningToRankEnsemble
 from chebifier.ensemble.voting_ensemble import VotingEnsemble
 from chebifier.ensemble.weighted_majority_ensemble import WMVwithF1Ensemble
 from chebifier.prediction_models import (
@@ -18,6 +20,8 @@ from chebifier.prediction_models.chemlog_predictor import (
 ENSEMBLES = {
     "mv": VotingEnsemble,
     "wmv-f1": WMVwithF1Ensemble,
+    "ltr": LearningToRankEnsemble,
+    "des": DynamicSelectionEnsemble,
 }
 
 

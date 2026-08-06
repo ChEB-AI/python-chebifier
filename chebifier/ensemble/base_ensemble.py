@@ -36,5 +36,12 @@ class BaseEnsemble:
         """
         pass
 
-    def predict(self, test_predictions: dict[str, torch.Tensor]):
+    def predict(
+        self,
+        test_predictions: dict[str, torch.Tensor],
+        molecules: list[Chem.Mol] | None = None,
+    ):
+        """Aggregate base learner predictions. `molecules` is only required by ensembles that
+        depend on the molecules themselves (e.g. dynamic selection, which looks up a region of
+        competence for each of them)."""
         raise NotImplementedError()

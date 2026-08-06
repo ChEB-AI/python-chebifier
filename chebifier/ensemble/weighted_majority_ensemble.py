@@ -146,7 +146,9 @@ class WMVwithF1Ensemble(VotingEnsemble):
         weighting_strength,
         weighting_exponent,
     ):
-        """Macro F1 of the aggregated predictions on each held-out fold."""
+        """Macro F1 of the aggregated predictions on each held-out fold, averaged only over
+        classes that have positive labels in that fold (a fold is too small for every class to
+        be present, and absent classes would otherwise contribute a hard 0)."""
         self.weighting_strength = weighting_strength
         self.weighting_exponent = weighting_exponent
         scores = []
@@ -162,9 +164,9 @@ class WMVwithF1Ensemble(VotingEnsemble):
             decisions = (aggregated["net_score"] > 0) & aggregated[
                 "has_valid_predictions"
             ]
-            scores.append(
-                self.classwise_f1(decisions, validation_labels[test_idx]).mean().item()
-            )
+            fold_labels = validation_labels[test_idx]
+            fold_f1 = self.classwise_f1(decisions, fold_labels)
+            scores.append(fold_f1[fold_labels.sum(dim=0) > 0].mean().item())
         self.prediction_thresholds = None
         self.model_f1_scores = None
         return scores

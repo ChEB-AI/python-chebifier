@@ -142,14 +142,25 @@ $$
 $$
 -->
 
-Here, confidence is the model's (self-reported) confidence in its prediction, calculated as
+Here, confidence is the model's (self-reported) confidence in its prediction. Each model has its own
+decision threshold $t_{m_i}$, calibrated on the validation set (see below), and confidence measures
+how far the prediction sits from that threshold — scaled separately on each side, so that a
+maximally confident negative ($p = 0$) and a maximally confident positive ($p = 1$) both count 1:
 $
-\text{confidence}_c^{m_i} = 2|p_c^{m_i} - 0.5|
+\text{confidence}_c^{m_i} = \begin{cases}
+(t_{m_i} - p_c^{m_i}) / t_{m_i} & \text{if } p_c^{m_i} < t_{m_i} \\
+(p_c^{m_i} - t_{m_i}) / (1 - t_{m_i}) & \text{otherwise}
+\end{cases}
 $
-For example, if a model makes a positive prediction with $p_c^{m_i} = 0.55$, the confidence is $2|0.55 - 0.5| = 0.1$.
-One could say that the model is not very confident in its prediction and very close to switching to a negative prediction.
-If another model is very sure about its negative prediction with $p_c^{m_j} = 0.1$, the confidence is $2|0.1 - 0.5| = 0.8$.
-Therefore, if in doubt, we are more confident in the negative prediction.
+For example, for a model with $t_{m_i} = 0.5$ and a positive prediction of $p_c^{m_i} = 0.55$, the
+confidence is $(0.55 - 0.5)/0.5 = 0.1$. One could say that the model is not very confident in its
+prediction and very close to switching to a negative prediction. If another model is very sure about
+its negative prediction with $p_c^{m_j} = 0.1$ (and $t_{m_j} = 0.5$), the confidence is
+$(0.5 - 0.1)/0.5 = 0.8$. Therefore, if in doubt, we are more confident in the negative prediction.
+
+The two-sided scaling matters whenever a model's threshold is not 0.5: with $t_{m_i} = 0.2$, a
+negative prediction only has a range of $0.2$ to move in and a positive one a range of $0.8$, so
+without rescaling the positive side would systematically outweigh the negative side.
 
 Confidence can be disabled by the `use_confidence` parameter of the predict method (default: True).
 
@@ -158,6 +169,37 @@ model independently of a given class.
 `Trust` is based on the model's performance on a validation set. After training, we evaluate the Machine Learning models
 on a validation set for each class. If the `ensemble_type` is set to `wmv-f1`, the trust is calculated as F1-score $^{6.25}$.
 If the `ensemble_type` is set to `mv` (the default), the trust is set to 1 for all models.
+
+#### Learned aggregation (`ltr` and `des`)
+
+Two further `ensemble_type`s replace the fixed voting rule by a model that is fitted on the
+validation split. Both restrict themselves to a candidate set (per molecule, the union of each
+base learner's top-`candidate_k` classes) and both emit the same net score as the voting
+ensembles, so inconsistency resolution and the decision threshold apply unchanged.
+
+- `ltr` — **learning to rank**, an adaptation of
+  [GOLabeler](https://doi.org/10.1093/bioinformatics/bty130): the base learner scores for a
+  (molecule, class) pair become the feature vector of a LambdaMART ranker (LightGBM) that ranks
+  ChEBI classes per molecule. Features are the raw base learner scores plus the number of covering
+  models and the max/mean/std over them; a global cutoff on the ranker score is calibrated on a
+  held-out 20% of the validation split.
+- `des` — **dynamic ensemble selection**, an adaptation of
+  [META-DES.H](https://arxiv.org/pdf/1811.01742): a `GaussianNB` meta-classifier estimates, per
+  (molecule, class, base learner), how competent that base learner is *for this molecule*, and only
+  the competent ones vote, weighted by that competence. Competence is described by the paper's five
+  meta-feature sets over two neighbourhoods — the `region_size` nearest molecules by Tanimoto
+  similarity on ECFP4, and the `profile_size` nearest output profiles. Because the neighbourhoods
+  are looked up at prediction time, calibration stores the reference predictions, labels and
+  fingerprints in the ensemble directory (~1 GB for a 20-model ensemble on ChEBI50).
+
+Both calibrate their hyperparameters by 5-fold cross-validation on the validation split, scoring
+macro-F1 on each held-out fold (the cutoff is tuned on a fold-internal dev set, so the reported
+score is not tuned on the fold it is measured on). Only the parameters that moved the result in
+previous experiments are searched: `candidate_k` for `ltr`, and `region_size` / `profile_size` /
+`vote` for `des`. The ranker's own tree hyperparameters, and `des`'s consensus and competence
+thresholds, sit on a plateau and are left at their published values. Passing any searched parameter
+to the constructor skips the search for it. Results are written to `hyperparameter_search.csv` and
+`best_hyperparameters.csv` in the ensemble directory, as for `wmv-f1`.
 
 ### Inconsistency resolution
 After a decision has been made for each class independently, the consistency of the predictions with regard to the ChEBI hierarchy

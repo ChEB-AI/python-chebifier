@@ -23,6 +23,9 @@ dependencies = [
     "tqdm",
     "rdkit",
     "chebi-utils>=0.3",
+    # level-1 ensembles: learning to rank (ltr) and dynamic ensemble selection (des)
+    "lightgbm",
+    "scikit-learn",
     # Package to install manually if required
     #"chebai>=1.0.1",
     #"chemlog>=1.0.4",
