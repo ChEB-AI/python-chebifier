@@ -9,7 +9,7 @@ import torch
 from rdkit import Chem
 
 from chebifier.ensemble.base_ensemble import BaseEnsemble
-from chebifier.inconsistency_resolution import ScoreBasedPredictionSmoother
+from chebifier.inconsistency_resolution import get_smoother_class
 from chebifier.prediction_models.base_predictor import BasePredictor
 from chebifier.utils import get_disjoint_files, load_chebi_graph
 
@@ -22,13 +22,23 @@ def apply_inconsistency_resolution(
     """
     smoother.set_label_names(class_names)
     net_score = aggregated_predictions["net_score"]
+    valid = aggregated_predictions.get("has_valid_predictions")
     aggregated_predictions["net_score"] = torch.cat(
         [
-            smoother(net_score[start : start + batch_size])
+            smoother(
+                net_score[start : start + batch_size],
+                None if valid is None else valid[start : start + batch_size],
+            )
             for start in range(0, net_score.shape[0], batch_size)
         ]
     )
     return aggregated_predictions
+
+
+def base_learner_cache_path(
+    prediction_cache_dir: str, model_name: str, split: str
+) -> str:
+    return os.path.join(prediction_cache_dir, f"{model_name}_{split}_predictions.npz")
 
 
 def save_dense_predictions(path: str, classes: list[str], scores: np.ndarray) -> None:
@@ -107,66 +117,88 @@ def collect_base_learner_predictions(
     return collected_predictions, ensemble_classes
 
 
-def predict(
-    base_learners: dict[str, BasePredictor],
+def get_base_learner_predictions(
+    base_learners: dict[str, Optional[BasePredictor]],
+    molecules: list[str | Chem.Mol],
+    prediction_cache_dir: Optional[str] = None,
+    split: str = "test",
+) -> dict[str, tuple[list[str], np.ndarray]]:
+    """Get dense predictions from the base learners, using the cache where available.
+
+    A base learner may be None if its predictions are known to be cached (see
+    cli.build_base_learners), which avoids loading model checkpoints that are never used.
+    """
+    predictions = {}
+    for model_name, model in base_learners.items():
+        cache_path = (
+            None
+            if prediction_cache_dir is None
+            else base_learner_cache_path(prediction_cache_dir, model_name, split)
+        )
+        if cache_path is not None and os.path.exists(cache_path):
+            predictions[model_name] = load_dense_predictions(cache_path)
+            continue
+        if model is None:
+            raise ValueError(
+                f"Base learner '{model_name}' was not instantiated, but its predictions are "
+                f"missing from the cache ({cache_path})."
+            )
+        predictions[model_name] = model.predict_dense(molecules)
+        if cache_path is not None:
+            save_dense_predictions(cache_path, *predictions[model_name])
+    return predictions
+
+
+def aggregate_predictions(
+    base_learners: dict[str, Optional[BasePredictor]],
     ensemble_model: BaseEnsemble,
     molecules: list[str | Chem.Mol],
     prediction_cache_dir: Optional[str] = None,
-    resolve_inconsistencies: bool = True,
-    decision_threshold: float = 0,
     classes: Optional[list[str]] = None,
     split: str = "test",
-) -> dict:
+) -> tuple[dict, list[str]]:
+    """Get base learner predictions and aggregate them with the ensemble model.
+
+    The result does not depend on the inconsistency resolution method, so it can be reused for
+    several resolution variants (see resolve_and_decide).
     """
-    Get end-to-end predictions from base learners and an ensemble model.
-
-    Args:
-        base_learners (dict[str, BasePredictor]): A dictionary of base learner models.
-        ensemble_model (BaseEnsemble): An instance of a BaseEnsemble model.
-        molecules (list[str | Chem.Mol]): List of molecules for prediction (either SMILES strings or molecule objects).
-        prediction_cache_dir (Optional[str]): Directory to cache predictions. If None, no caching is performed. If provided,
-            predictions from base learners will be cached to avoid recomputation (warning: not checked against the molecules provided
-            -> if the molecules change, you have to empty the cache or provide a new cache directory).
-        resolve_inconsistencies (bool): Whether to resolve inconsistencies in the aggregated predictions.
-        decision_threshold (float): Threshold for class decisions based on net score. Default is 0.
-        classes (Optional[list[str]]): Column space to map the base learner predictions onto, see
-            collect_base_learner_predictions. If None (the default), the union of all classes is used.
-        split (str): Name of the dataset split, used to separate cached base learner predictions of
-            different splits within the same cache directory.
-
-    Returns:
-        dict: A dictionary containing the final predictions and optionally the smoothed predictions.
-    """
-
-    # Step 1: Get predictions from base learners on test data
-    test_predictions = {}
-    for model_name, model in base_learners.items():
-        if prediction_cache_dir is None:
-            test_predictions[model_name] = model.predict_dense(molecules)
-        else:
-            cache_path = os.path.join(
-                prediction_cache_dir, f"{model_name}_{split}_predictions.npz"
-            )
-            if os.path.exists(cache_path):
-                test_predictions[model_name] = load_dense_predictions(cache_path)
-            else:
-                test_predictions[model_name] = model.predict_dense(molecules)
-                save_dense_predictions(cache_path, *test_predictions[model_name])
-
+    test_predictions = get_base_learner_predictions(
+        base_learners, molecules, prediction_cache_dir=prediction_cache_dir, split=split
+    )
     test_predictions, predicted_classes = collect_base_learner_predictions(
         test_predictions, classes=classes
     )
-
-    # Step 2: Get aggregated predictions from the ensemble model
     aggregated_predictions = ensemble_model.predict(test_predictions, molecules)
     # net_score, has_valid_predictions, intermediate_results_dict
+    return aggregated_predictions, predicted_classes
 
-    # Step 3: Optionally resolve inconsistencies in the aggregated predictions
-    if resolve_inconsistencies:
-        chebi_graph = load_chebi_graph()
-        disjoint_files = get_disjoint_files()
-        smoother = ScoreBasedPredictionSmoother(
-            chebi_graph=chebi_graph, label_names=None, disjoint_files=disjoint_files
+
+def resolve_and_decide(
+    aggregated_predictions: dict,
+    predicted_classes: list[str],
+    inconsistency_resolution: Optional[str] = "score-based",
+    inconsistency_resolution_params: Optional[dict] = None,
+    decision_threshold: float = 0,
+    chebi_graph=None,
+    disjoint_files=None,
+) -> dict:
+    """Resolve inconsistencies in aggregated predictions and turn them into class decisions.
+
+    `aggregated_predictions` is not modified, so the same aggregation can be passed to several
+    resolution variants. Pass `inconsistency_resolution=None` or "none" to skip the resolution,
+    and chebi_graph / disjoint_files to avoid reloading them for every variant.
+    """
+    aggregated_predictions = dict(aggregated_predictions)
+    if inconsistency_resolution not in (None, "none"):
+        if chebi_graph is None:
+            chebi_graph = load_chebi_graph()
+        if disjoint_files is None:
+            disjoint_files = get_disjoint_files()
+        smoother = get_smoother_class(inconsistency_resolution)(
+            chebi_graph=chebi_graph,
+            label_names=None,
+            disjoint_files=disjoint_files,
+            **(inconsistency_resolution_params or {}),
         )
         aggregated_predictions = apply_inconsistency_resolution(
             smoother, predicted_classes, aggregated_predictions
@@ -187,3 +219,55 @@ def predict(
     aggregated_predictions["predicted_classes"] = predicted_classes
 
     return aggregated_predictions
+
+
+def predict(
+    base_learners: dict[str, BasePredictor],
+    ensemble_model: BaseEnsemble,
+    molecules: list[str | Chem.Mol],
+    prediction_cache_dir: Optional[str] = None,
+    resolve_inconsistencies: bool = True,
+    inconsistency_resolution: str = "score-based",
+    inconsistency_resolution_params: Optional[dict] = None,
+    decision_threshold: float = 0,
+    classes: Optional[list[str]] = None,
+    split: str = "test",
+) -> dict:
+    """
+    Get end-to-end predictions from base learners and an ensemble model.
+
+    Args:
+        base_learners (dict[str, BasePredictor]): A dictionary of base learner models.
+        ensemble_model (BaseEnsemble): An instance of a BaseEnsemble model.
+        molecules (list[str | Chem.Mol]): List of molecules for prediction (either SMILES strings or molecule objects).
+        prediction_cache_dir (Optional[str]): Directory to cache predictions. If None, no caching is performed. If provided,
+            predictions from base learners will be cached to avoid recomputation (warning: not checked against the molecules provided
+            -> if the molecules change, you have to empty the cache or provide a new cache directory).
+        resolve_inconsistencies (bool): Whether to resolve inconsistencies in the aggregated predictions.
+        inconsistency_resolution (str): Which resolution method to use, see SMOOTHER_NAMES.
+        decision_threshold (float): Threshold for class decisions based on net score. Default is 0.
+        classes (Optional[list[str]]): Column space to map the base learner predictions onto, see
+            collect_base_learner_predictions. If None (the default), the union of all classes is used.
+        split (str): Name of the dataset split, used to separate cached base learner predictions of
+            different splits within the same cache directory.
+
+    Returns:
+        dict: A dictionary containing the final predictions and optionally the smoothed predictions.
+    """
+    aggregated_predictions, predicted_classes = aggregate_predictions(
+        base_learners,
+        ensemble_model,
+        molecules,
+        prediction_cache_dir=prediction_cache_dir,
+        classes=classes,
+        split=split,
+    )
+    return resolve_and_decide(
+        aggregated_predictions,
+        predicted_classes,
+        inconsistency_resolution=(
+            inconsistency_resolution if resolve_inconsistencies else "none"
+        ),
+        inconsistency_resolution_params=inconsistency_resolution_params,
+        decision_threshold=decision_threshold,
+    )

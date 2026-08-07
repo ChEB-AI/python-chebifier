@@ -53,6 +53,58 @@ def get_disjoint_groups(disjoint_files):
     return disjoint_all
 
 
+def to_prob(scores, k):
+    return torch.sigmoid(k * scores)
+
+
+def from_prob(p, k):
+    p = p.clamp(1e-6, 1 - 1e-6)
+    return (torch.log(p) - torch.log1p(-p)) / k
+
+
+def densified_exclusion_matrix(label_names, label_successors, disjoint_groups):
+    label_index = {label: i for i, label in enumerate(label_names)}
+    succ = label_successors[0] if label_successors.dim() == 3 else label_successors
+    n = succ.shape[0]
+    excl = torch.zeros((n, n), dtype=torch.bool)
+    for group in disjoint_groups:
+        members = [label_index[g] for g in group if g in label_index]
+        for gi in range(len(members)):
+            for gj in range(gi + 1, len(members)):
+                subs_a = succ[:, members[gi]]
+                subs_b = succ[:, members[gj]]
+                block = subs_a.unsqueeze(1) & subs_b.unsqueeze(0)
+                excl |= block | block.T
+    excl.fill_diagonal_(False)
+    return excl
+
+
+def densified_exclusion_pairs(label_names, label_successors, disjoint_groups):
+    excl = densified_exclusion_matrix(label_names, label_successors, disjoint_groups)
+    return torch.nonzero(torch.triu(excl), as_tuple=False)
+
+
+def get_smoother_class(name):
+    from chebifier.hex_graph import HexSmoother
+    from chebifier.ilr import GodelILRSmoother, LukasiewiczILRSmoother
+
+    smoothers = {
+        "score-based": ScoreBasedPredictionSmoother,
+        "ilr-godel": GodelILRSmoother,
+        "ilr-lukasiewicz": LukasiewiczILRSmoother,
+        "hex": HexSmoother,
+    }
+    if name not in smoothers:
+        raise ValueError(
+            f"Unknown inconsistency resolution method '{name}'. "
+            f"Available: {', '.join(smoothers)}"
+        )
+    return smoothers[name]
+
+
+SMOOTHER_NAMES = ["score-based", "ilr-godel", "ilr-lukasiewicz", "hex"]
+
+
 class PredictionSmoother:
     """Removes implication and disjointness violations from predictions"""
 
@@ -118,7 +170,7 @@ class PredictionSmoother:
             print(f"Preds change (step 3): {torch.sum(preds) - preds_sum_orig}")
         return preds
 
-    def __call__(self, preds):
+    def __call__(self, preds, valid_mask=None):
         if preds.shape[1] == 0:
             # no labels predicted
             return preds

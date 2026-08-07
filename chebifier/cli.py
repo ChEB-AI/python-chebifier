@@ -11,9 +11,17 @@ from chebi_utils.read_molecule import smiles_or_inchi_to_mol
 from chebifier.build_ensemble import EnsembleBuilder
 from chebifier.check_env import check_package_installed
 from chebifier.hugging_face import download_model_files
+from chebifier.inconsistency_resolution import SMOOTHER_NAMES
 from chebifier.model_registry import ENSEMBLES, MODEL_TYPES
+from chebifier.predict import aggregate_predictions, base_learner_cache_path
 from chebifier.predict import predict as predict_molecules
-from chebifier.utils import get_default_configs, load_chebi_graph, process_config
+from chebifier.predict import resolve_and_decide
+from chebifier.utils import (
+    get_default_configs,
+    get_disjoint_files,
+    load_chebi_graph,
+    process_config,
+)
 
 
 def read_molecules(molecules, molecule_file):
@@ -26,8 +34,13 @@ def read_molecules(molecules, molecule_file):
     return [smiles_or_inchi_to_mol(raw_input) for raw_input in raw_inputs]
 
 
-def build_base_learners(ensemble_config):
-    """Instantiate the base learners described by an ensemble configuration file."""
+def build_base_learners(ensemble_config, prediction_cache_dir=None, split=None):
+    """Instantiate the base learners described by an ensemble configuration file.
+
+    If prediction_cache_dir and split are given, models whose predictions for that split are
+    already cached are not instantiated (their entry is None) - loading their checkpoints would
+    be a waste of time since the cached predictions are used instead.
+    """
     if ensemble_config is None:
         config = get_default_configs()
     else:
@@ -42,9 +55,21 @@ def build_base_learners(ensemble_config):
     ):
         model_registry = yaml.safe_load(f)
 
-    chebi_graph = load_chebi_graph()
+    chebi_graph = None
     base_learners = {}
     for model_name, model_config in process_config(config, model_registry).items():
+        if (
+            prediction_cache_dir is not None
+            and split is not None
+            and os.path.exists(
+                base_learner_cache_path(prediction_cache_dir, model_name, split)
+            )
+        ):
+            print(f"{model_name} {split} predictions found in cache, skipping model.")
+            base_learners[model_name] = None
+            continue
+        if chebi_graph is None:
+            chebi_graph = load_chebi_graph()
         if "hugging_face" in model_config:
             hugging_face_kwargs = download_model_files(model_config["hugging_face"])
         else:
@@ -58,6 +83,19 @@ def build_base_learners(ensemble_config):
             chebi_graph=chebi_graph,
         )
     return base_learners
+
+
+def parse_ir_params(ir_param):
+    params = {}
+    for entry in ir_param:
+        if "=" not in entry:
+            raise click.BadParameter(f"Expected key=value, got '{entry}'")
+        key, value = entry.split("=", 1)
+        try:
+            params[key.strip()] = float(value)
+        except ValueError:
+            params[key.strip()] = value
+    return params
 
 
 def load_dataset(data_path, split: Literal["train", "validation", "test"]):
@@ -88,8 +126,8 @@ def load_dataset(data_path, split: Literal["train", "validation", "test"]):
     return mol_list, labels_df
 
 
-def ensemble_options(command):
-    """Options shared by all commands that use an ensemble."""
+def base_learner_options(command):
+    """Options shared by all commands that use base learners."""
     for option in reversed(
         [
             click.option(
@@ -99,6 +137,22 @@ def ensemble_options(command):
                 default=None,
                 help="Configuration file listing the base learners of the ensemble",
             ),
+            click.option(
+                "--prediction-cache-dir",
+                type=click.Path(),
+                default=None,
+                help="Directory for caching base learner predictions",
+            ),
+        ]
+    ):
+        command = option(command)
+    return command
+
+
+def ensemble_options(command):
+    """Options shared by all commands that use a single ensemble."""
+    for option in reversed(
+        [
             click.option(
                 "--ensemble-type",
                 "-t",
@@ -113,16 +167,10 @@ def ensemble_options(command):
                 required=True,
                 help="Directory where the calibration results of the ensemble are stored",
             ),
-            click.option(
-                "--prediction-cache-dir",
-                type=click.Path(),
-                default=None,
-                help="Directory for caching base learner predictions",
-            ),
         ]
     ):
         command = option(command)
-    return command
+    return base_learner_options(command)
 
 
 def data_options(command):
@@ -171,12 +219,44 @@ def build(
 
 
 @cli.command()
-@ensemble_options
+@base_learner_options
 @data_options
+@click.option(
+    "--ensemble-type",
+    "-t",
+    type=click.Choice(ENSEMBLES.keys()),
+    multiple=True,
+    default=("wmv-f1",),
+    help="Type of ensemble to evaluate (repeatable, paired with --ensemble-dir)",
+)
+@click.option(
+    "--ensemble-dir",
+    "-d",
+    type=click.Path(),
+    multiple=True,
+    required=True,
+    help="Directory where the calibration results of the ensemble are stored (one per --ensemble-type)",
+)
 @click.option(
     "--resolve-inconsistencies/--no-resolve-inconsistencies",
     default=True,
-    help="Resolve inconsistencies in the aggregated predictions (default: True)",
+    help="Resolve inconsistencies in the aggregated predictions (default: True). "
+    "--no-resolve-inconsistencies is equivalent to '-ir none'.",
+)
+@click.option(
+    "--inconsistency-resolution",
+    "-ir",
+    type=click.Choice(SMOOTHER_NAMES + ["none"]),
+    multiple=True,
+    default=("score-based",),
+    help="Method used to resolve inconsistencies (repeatable, default: score-based). "
+    "All methods share the base learner predictions and the ensemble aggregation.",
+)
+@click.option(
+    "--ir-param",
+    "-irp",
+    multiple=True,
+    help="Extra key=value parameter for the resolution method, e.g. -irp k=2.0 (repeatable)",
 )
 @click.option(
     "--split",
@@ -185,11 +265,19 @@ def build(
     help="Dataset split to evaluate on (default: test)",
 )
 @click.option(
+    "--skip-existing",
+    is_flag=True,
+    default=False,
+    help="Skip ensemble / resolution combinations whose output file already exists",
+)
+@click.option(
     "--output",
     "-o",
     type=click.Path(),
     default=None,
-    help="Output file for the ensemble predictions (default: <ensemble-dir>/<split>_predictions.npz)",
+    help="Output file for the ensemble predictions, only allowed for a single ensemble and "
+    "resolution method (default: <ensemble-dir>/<split>_predictions_<method>.npz, "
+    "with 'noir' as method for '-ir none')",
 )
 def evaluate(
     ensemble_config,
@@ -198,41 +286,92 @@ def evaluate(
     prediction_cache_dir,
     data_path,
     resolve_inconsistencies,
+    inconsistency_resolution,
+    ir_param,
     split,
+    skip_existing,
     output,
 ):
-    """Store the predictions of an ensemble on a ChEBI dataset split."""
-    base_learners = build_base_learners(ensemble_config)
-    ensemble_model = ENSEMBLES[ensemble_type](ensemble_dir)
+    """Store the predictions of one or more ensembles on a ChEBI dataset split."""
+    if len(ensemble_type) != len(ensemble_dir):
+        raise click.BadParameter(
+            f"Got {len(ensemble_type)} --ensemble-type and {len(ensemble_dir)} --ensemble-dir "
+            f"values, expected one directory per ensemble type."
+        )
+    variants = list(inconsistency_resolution) if resolve_inconsistencies else ["none"]
+    if output is not None and (len(ensemble_type) > 1 or len(variants) > 1):
+        raise click.BadParameter(
+            "--output can only be used with a single --ensemble-type and a single "
+            "--inconsistency-resolution."
+        )
+
+    def output_path(dir_, variant):
+        if output is not None:
+            return output
+        suffix = "noir" if variant == "none" else variant
+        return os.path.join(dir_, f"{split}_predictions_{suffix}.npz")
+
+    jobs = {}
+    for type_, dir_ in zip(ensemble_type, ensemble_dir):
+        todo = [
+            variant
+            for variant in variants
+            if not (skip_existing and os.path.exists(output_path(dir_, variant)))
+        ]
+        if todo:
+            jobs[(type_, dir_)] = todo
+        else:
+            print(f"All outputs for {type_} in {dir_} exist, skipping.")
+    if not jobs:
+        return
+
+    base_learners = build_base_learners(
+        ensemble_config, prediction_cache_dir=prediction_cache_dir, split=split
+    )
 
     # TODO: Hugging Face support
     eval_data, eval_labels = load_dataset(data_path, split=split)
 
-    predictions = predict_molecules(
-        base_learners,
-        ensemble_model,
-        eval_data,
-        prediction_cache_dir=prediction_cache_dir,
-        resolve_inconsistencies=resolve_inconsistencies,
-        classes=[str(cls) for cls in eval_labels.columns],
-        split=split,
-    )
+    chebi_graph, disjoint_files = None, None
+    if any(variant != "none" for variant in variants):
+        chebi_graph = load_chebi_graph()
+        disjoint_files = get_disjoint_files()
 
-    if output is None:
-        output = os.path.join(ensemble_dir, f"{split}_predictions.npz")
-    os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
-    np.savez_compressed(
-        output,
-        classes=np.array(predictions["predicted_classes"]),
-        scores=predictions["net_score"].numpy(),
-        decisions=predictions["class_decisions"].numpy(),
-        has_valid_predictions=predictions["has_valid_predictions"].numpy(),
-    )
-    print(
-        f"Saved {ensemble_type} predictions for split '{split}' "
-        f"({predictions['class_decisions'].shape[0]} molecules, {len(predictions['predicted_classes'])} classes, "
-        f"{int(predictions['complete_failure'].sum())} molecules without any valid prediction) to {output}."
-    )
+    ir_params = parse_ir_params(ir_param)
+    for (type_, dir_), todo in jobs.items():
+        ensemble_model = ENSEMBLES[type_](dir_)
+        aggregated, predicted_classes = aggregate_predictions(
+            base_learners,
+            ensemble_model,
+            eval_data,
+            prediction_cache_dir=prediction_cache_dir,
+            classes=[str(cls) for cls in eval_labels.columns],
+            split=split,
+        )
+        for variant in todo:
+            print(f"Resolving inconsistencies for {type_} with '{variant}'...")
+            predictions = resolve_and_decide(
+                aggregated,
+                predicted_classes,
+                inconsistency_resolution=variant,
+                inconsistency_resolution_params=ir_params,
+                chebi_graph=chebi_graph,
+                disjoint_files=disjoint_files,
+            )
+            target = output_path(dir_, variant)
+            os.makedirs(os.path.dirname(os.path.abspath(target)), exist_ok=True)
+            np.savez_compressed(
+                target,
+                classes=np.array(predictions["predicted_classes"]),
+                scores=predictions["net_score"].numpy(),
+                decisions=predictions["class_decisions"].numpy(),
+                has_valid_predictions=predictions["has_valid_predictions"].numpy(),
+            )
+            print(
+                f"Saved {type_} predictions for split '{split}' "
+                f"({predictions['class_decisions'].shape[0]} molecules, {len(predictions['predicted_classes'])} classes, "
+                f"{int(predictions['complete_failure'].sum())} molecules without any valid prediction) to {target}."
+            )
 
 
 @cli.command()
@@ -253,11 +392,24 @@ def evaluate(
     help="Resolve inconsistencies in the aggregated predictions (default: True)",
 )
 @click.option(
+    "--inconsistency-resolution",
+    "-ir",
+    type=click.Choice(SMOOTHER_NAMES),
+    default="score-based",
+    help="Method used to resolve inconsistencies (default: score-based)",
+)
+@click.option(
     "--output",
     "-o",
     type=click.Path(),
     default=None,
     help="Output file to save the predictions (optional)",
+)
+@click.option(
+    "--ir-param",
+    "-irp",
+    multiple=True,
+    help="Extra key=value parameter for the resolution method, e.g. -irp k=2.0 (repeatable)",
 )
 @click.option(
     "--decision-threshold",
@@ -274,6 +426,8 @@ def predict(
     molecules,
     molecule_file,
     resolve_inconsistencies,
+    inconsistency_resolution,
+    ir_param,
     decision_threshold,
     output,
 ):
@@ -292,6 +446,8 @@ def predict(
         molecules_list,
         prediction_cache_dir=prediction_cache_dir,
         resolve_inconsistencies=resolve_inconsistencies,
+        inconsistency_resolution=inconsistency_resolution,
+        inconsistency_resolution_params=parse_ir_params(ir_param),
         decision_threshold=decision_threshold,
     )
 

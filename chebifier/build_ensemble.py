@@ -3,6 +3,7 @@ import os
 import torch
 
 from chebifier.predict import (
+    base_learner_cache_path,
     collect_base_learner_predictions,
     load_dense_predictions,
     save_dense_predictions,
@@ -49,8 +50,8 @@ class EnsembleBuilder:
         classes = {}
         # get cached predictions if available, otherwise compute and cache them
         for model_name, model in self.base_learners.items():
-            cache_path = os.path.join(
-                self.prediction_cache_dir, f"{model_name}_validation_predictions.npz"
+            cache_path = base_learner_cache_path(
+                self.prediction_cache_dir, model_name, "validation"
             )
             if os.path.exists(cache_path):
                 print(f"{model_name} validation predictions found in cache, loading...")

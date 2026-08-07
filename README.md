@@ -215,3 +215,41 @@ both, we select one with the higher class score and set the other to 0.
 with a small change. For a pair of classes $A \subseteq B$ with predictions $1$ and $0$, instead of setting $B$ to $1$,
 we now set $A$ to $0$. This has the advantage that we cannot introduce new disjointness-inconsistencies and don't have
 to repeat step 2.
+
+#### Alternative methods
+
+The method above is `--inconsistency-resolution score-based` (`-ir`, the default). Two alternatives
+from the literature are available at the same point in the pipeline; all of them consume the net
+score and return a net score, so the decision threshold applies unchanged.
+
+- `ilr-godel`, `ilr-lukasiewicz` — **Iterative Local Refinement**
+  ([Daniele et al. 2023](https://doi.org/10.1007/s10994-023-06310-3)). Subsumption becomes the
+  implication $A \rightarrow B$ and disjointness the formula $\neg (A \wedge B)$, both as hard
+  constraints ($\hat t = 1$). Each constraint is repaired by its *minimal refinement function* —
+  the closest truth vector satisfying it — and the repairs are iterated to a fixpoint instead of
+  running the fixed 3-step schedule above. The two variants differ in how they split a violation:
+  Gödel is winner-take-all (it raises the parent to the child, and zeroes the weaker side of a
+  disjoint pair), whereas Łukasiewicz shares the correction — a disjointness violation with scores
+  $0.8$ and $0.7$ becomes $0.55$ and $0.45$ rather than $0.8$ and $0$.
+- `hex` — **HEX graphs**
+  ([Deng et al. 2014](https://doi.org/10.1007/978-3-319-10590-1_4)). A CRF over binary label
+  vectors in which hierarchy edges forbid $(B, A) = (0, 1)$ and exclusion edges forbid
+  $(1, 1)$. Illegal states have probability zero, so the marginals satisfy
+  $P(A) \le P(B)$ for $A \subseteq B$ and $P(A) + P(B) \le 1$ for disjoint $A, B$ by construction.
+
+Both convert the net score to a probability with $p = \sigma(k \cdot \mathrm{score})$ and back with
+$\mathrm{logit}(p) / k$, so the decision boundary stays at $0$. `k` (and `delta` for `hex`) can be
+passed with `-irp k=2.0` and tuned with `scripts/calibrate_resolution.py`. Note that `k` does not
+affect `ilr-godel`'s decisions: every Gödel operation is order-preserving, so a monotone
+reparametrisation cannot change the sign of any score.
+
+Applied as published, HEX inference is intractable here. Its cost is bounded by
+$O(\min(|V|2^w, |V|2^{\Omega}))$, and on a 2117-class ChEBI label set the maximum overlap is
+$\Omega = 2115$ and the junction tree width is $\le 62$, with over 5 million legal states in the
+largest cliques — the paper's efficiency argument assumes labels are mostly mutually exclusive,
+whereas ChEBI labels overwhelmingly overlap (~25 classes hold per molecule). This implementation
+therefore *clamps*: classes whose score is further than `delta` from the boundary, and which are
+not involved in a violation, are fixed to their sign; that assignment is propagated to a fixpoint;
+and exact inference runs only on the connected components of what remains (typically fewer than 30
+classes). Components above `max_component_size` fall back to `score-based`, counted in
+`n_fallbacks`. This is a deviation from the published method and should be reported as such.
