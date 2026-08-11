@@ -162,13 +162,15 @@ The two-sided scaling matters whenever a model's threshold is not 0.5: with $t_{
 negative prediction only has a range of $0.2$ to move in and a positive one a range of $0.8$, so
 without rescaling the positive side would systematically outweigh the negative side.
 
-Confidence can be disabled by the `use_confidence` parameter of the predict method (default: True).
+Confidence is used by the weighted voting ensembles (`wmv-conf` and `wmv-f1`). If the `ensemble_type`
+is set to `mv`, all votes count the same (confidence is fixed to 1), which gives an unweighted
+majority-voting baseline.
 
 The`model_weight` can be set for each model in the configuration file (default: 1). This is used to favor a certain
 model independently of a given class.
 `Trust` is based on the model's performance on a validation set. After training, we evaluate the Machine Learning models
 on a validation set for each class. If the `ensemble_type` is set to `wmv-f1`, the trust is calculated as F1-score $^{6.25}$.
-If the `ensemble_type` is set to `mv` (the default), the trust is set to 1 for all models.
+For `mv` and `wmv-conf`, the trust is set to 1 for all models.
 
 #### Learned aggregation (`ltr` and `des`)
 

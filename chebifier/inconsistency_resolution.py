@@ -53,13 +53,18 @@ def get_disjoint_groups(disjoint_files):
     return disjoint_all
 
 
-def to_prob(scores, k):
-    return torch.sigmoid(k * scores)
+NEUTRAL = 0.5
 
 
-def from_prob(p, k):
+def to_logit(p):
+    """Log-odds of a probability, for the one place that needs them: the HEX log-linear model.
+
+    Ensembles report probabilities, which is what the resolution methods work in. Only the HEX
+    softmax over legal states needs logits, and its unanimous predictions sit exactly at 0 and 1,
+    so the clamp is what keeps them finite.
+    """
     p = p.clamp(1e-6, 1 - 1e-6)
-    return (torch.log(p) - torch.log1p(-p)) / k
+    return torch.log(p) - torch.log1p(-p)
 
 
 def densified_exclusion_matrix(label_names, label_successors, disjoint_groups):
@@ -106,7 +111,11 @@ SMOOTHER_NAMES = ["score-based", "ilr-godel", "ilr-lukasiewicz", "hex"]
 
 
 class PredictionSmoother:
-    """Removes implication and disjointness violations from predictions"""
+    """Removes implication and disjointness violations from predictions.
+
+    Predictions are probabilities in [0, 1]: NEUTRAL (0.5) means the ensemble is undecided, and a
+    class is predicted when its probability exceeds the ensemble's decision threshold.
+    """
 
     def __init__(
         self, chebi_graph, label_names=None, disjoint_files=None, verbose=False
@@ -157,7 +166,7 @@ class PredictionSmoother:
                     True
                 )
                 preds[:, disj_group] = torch.where(
-                    keep, group_preds, group_preds.clamp(max=0.0)
+                    keep, group_preds, group_preds.clamp(max=NEUTRAL)
                 )
         if self.verbose and torch.sum(preds) != preds_sum_orig:
             print(f"Preds change (step 2): {torch.sum(preds) - preds_sum_orig}")
@@ -199,8 +208,9 @@ class PessimisticPredictionSmoother(PredictionSmoother):
 
 
 class ScoreBasedPredictionSmoother(PredictionSmoother):
-    """Removes implication violations from predictions based on net scores: for A subclassOf B where score(A) > score(B), either set score(B) = max(score(B), score(A))
-    if abs(score(A)) > abs(score(B)) or set score(A) = min(score(A), score(B)) otherwise.
+    """Removes implication violations from predictions based on the predicted probabilities: for A
+    subclassOf B where score(A) > score(B), either set score(B) = max(score(B), score(A)) if A is
+    further from NEUTRAL than B, or set score(A) = min(score(A), score(B)) otherwise.
     """
 
     def resolve_subsumption_violations(self, preds):
@@ -213,6 +223,8 @@ class ScoreBasedPredictionSmoother(PredictionSmoother):
         preds_optimistic = preds_masked_predec.max(dim=2).values
         preds_masked_succ = torch.where(self.label_successors, preds, torch.inf)
         preds_pessimistic = preds_masked_succ.min(dim=2).values
-        # take the one with the higher absolute value
-        preds_direction = preds_optimistic.abs() > preds_pessimistic.abs()
+        # take whichever the ensemble is more confident about, i.e. further from NEUTRAL
+        preds_direction = (preds_optimistic - NEUTRAL).abs() > (
+            preds_pessimistic - NEUTRAL
+        ).abs()
         return torch.where(preds_direction, preds_optimistic, preds_pessimistic)

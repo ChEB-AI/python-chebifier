@@ -8,13 +8,15 @@ from chebifier.ensemble.base_ensemble import BaseEnsemble
 
 
 class VotingEnsemble(BaseEnsemble):
+    """Base class for the voting ensembles. Subclasses define the vote weights by overriding
+    calculate_confidence (self-reported confidence of a model) and calculate_trust (measured
+    reliability of a model)."""
+
     def __init__(
         self,
         ensemble_dir: str,
-        use_confidence: bool = True,
     ):
         super().__init__(ensemble_dir)
-        self.use_confidence = use_confidence
         self.classwise_f1 = None
         self.prediction_thresholds = None
 
@@ -66,19 +68,26 @@ class VotingEnsemble(BaseEnsemble):
                 f"Prediction thresholds file not found in ensemble directory: {self.ensemble_dir}. Please calibrate the ensemble first."
             )
 
+    def calculate_confidence(
+        self, predictions_tensor: torch.Tensor, thresholds: torch.Tensor
+    ) -> torch.Tensor:
+        raise NotImplementedError
+
     def calculate_trust(self, predictions: dict[str, torch.Tensor]) -> torch.Tensor:
-        # No trust for MV, only used in WMV
+        # No trust unless a subclass measures it (e.g. WMVwithF1Ensemble)
         return 1
 
     def predict(self, test_predictions: dict[str, torch.Tensor], molecules=None):
         """
-        Aggregates predictions from multiple models using weighted majority voting.
-        weights are only the self-reported confidence (=difference between prediction and threshold). If set to false, all models are weighted equally.
+        Aggregates predictions from multiple models by voting, each vote weighted by
+        calculate_confidence * calculate_trust.
 
-        The net score is normalised by the weight mass that was cast, so it is a signed agreement
-        fraction in [-1, 1] rather than a sum over models. This keeps classes covered by different
-        numbers of base learners comparable, which matters downstream: inconsistency resolution
-        compares scores across classes. The sign is unaffected, so class decisions do not change.
+        The net score is the weighted agreement among the models that voted, mapped onto [0, 1]:
+        1 if they unanimously predict the class, 0 if they unanimously reject it, 0.5 if they are
+        evenly split. Normalising by the weight mass that was cast (rather than summing over models)
+        keeps classes covered by different numbers of base learners comparable, which is what
+        inconsistency resolution needs - it compares scores across classes. The agreement fraction
+        is a well calibrated probability on its own, so no further calibration is applied.
         """
         predictions_tensor = torch.stack(
             list(test_predictions.values()), dim=2
@@ -114,16 +123,9 @@ class VotingEnsemble(BaseEnsemble):
             predictions_tensor < threshold_mask.unsqueeze(0).unsqueeze(0)
         ) & valid_predictions
 
-        if self.use_confidence:
-            threshold = threshold_mask.unsqueeze(0).unsqueeze(0)
-            scores = predictions_tensor.nan_to_num()
-            confidence = torch.where(
-                scores < threshold,
-                (threshold - scores) / threshold,
-                (scores - threshold) / (1 - threshold),
-            )
-        else:
-            confidence = torch.ones_like(predictions_tensor)
+        confidence = self.calculate_confidence(
+            predictions_tensor, threshold_mask.unsqueeze(0).unsqueeze(0)
+        )
 
         trust = self.calculate_trust(test_predictions)
         # Calculate weighted predictions using broadcasting
@@ -141,8 +143,13 @@ class VotingEnsemble(BaseEnsemble):
         )  # Shape: (num_molecules, num_classes)
 
         # Determine which classes to include for each molecule
-        net_score = (positive_sum - negative_sum) / (positive_sum + negative_sum).clamp(
-            min=1e-6
+        net_score = (
+            0.5
+            + (positive_sum - negative_sum)
+            / (positive_sum + negative_sum).clamp(min=1e-6)
+            / 2
+        ).clamp(
+            0.0, 1.0
         )  # Shape: (num_molecules, num_classes)
         return {
             "net_score": net_score,
@@ -153,3 +160,28 @@ class VotingEnsemble(BaseEnsemble):
             "positive_mask": positive_mask,
             "negative_mask": negative_mask,
         }
+
+
+class MajorityVotingEnsemble(VotingEnsemble):
+    """Plain majority voting: every model that votes counts the same, no weights at all."""
+
+    def calculate_confidence(
+        self, predictions_tensor: torch.Tensor, thresholds: torch.Tensor
+    ) -> torch.Tensor:
+        return torch.ones_like(predictions_tensor)
+
+
+class WMVwithConfidenceEnsemble(VotingEnsemble):
+    """WMV ensemble that weights each vote by the model's self-reported confidence, i.e. how far
+    its prediction sits from its decision threshold, scaled separately on each side so that a
+    maximally confident negative and a maximally confident positive both count 1."""
+
+    def calculate_confidence(
+        self, predictions_tensor: torch.Tensor, thresholds: torch.Tensor
+    ) -> torch.Tensor:
+        scores = predictions_tensor.nan_to_num()
+        return torch.where(
+            scores < thresholds,
+            (thresholds - scores) / thresholds,
+            (scores - thresholds) / (1 - thresholds),
+        )

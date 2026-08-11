@@ -13,7 +13,7 @@ from chebifier.ensemble.level1 import (
     dense_from_pairs,
     fit_platt,
     holdout_split,
-    noncandidate_log_odds,
+    noncandidate_probability,
     pair_scorer,
     save_hyperparameter_results,
     select_candidates,
@@ -73,6 +73,10 @@ def build_rows(scores, k, labels=None):
     if labels is not None:
         rows["y"] = labels[molecule, class_index].astype(np.int8)
     return rows
+
+
+def _sigmoid(x):
+    return float(1.0 / (1.0 + np.exp(-x)))
 
 
 def design_matrix(rows, class_stats=None):
@@ -142,7 +146,7 @@ class LearningToRankEnsemble(VotingEnsemble):
             rows, labels, train_mask, dev_mask, scores, thresholds
         )
         platt_a, platt_b = fit_platt(dev_scores, rows["y"][dev_mask[rows["molecule"]]])
-        floor_logodds = noncandidate_log_odds(
+        floor = noncandidate_probability(
             scores.shape[0] * scores.shape[1] - rows["molecule"].size,
             int(labels.sum()) - int(rows["y"].sum()),
         )
@@ -161,8 +165,8 @@ class LearningToRankEnsemble(VotingEnsemble):
             "tau": float(tau),
             "platt_a": platt_a,
             "platt_b": platt_b,
-            "tau_logodds": platt_a * float(tau) + platt_b,
-            "floor_logodds": floor_logodds,
+            "tau_probability": _sigmoid(platt_a * float(tau) + platt_b),
+            "floor": floor,
             "n_classes": int(scores.shape[1]),
             "best_iteration": int(booster.best_iteration),
             "dev_macro_f1": float(dev_macro_f1),
@@ -175,9 +179,9 @@ class LearningToRankEnsemble(VotingEnsemble):
         self._booster, self._metadata = booster, metadata
         print(
             f"Saved ranker to {self._model_path} (candidate_k={candidate_k}, tau={tau:.4f}, "
-            f"held-out macro-f1: {dev_macro_f1:.4f}). Calibrated to log-odds with "
-            f"a={platt_a:.4f}, b={platt_b:.4f} (decision threshold {metadata['tau_logodds']:.4f}); "
-            f"non-candidate pairs scored at {floor_logodds:.2f}."
+            f"held-out macro-f1: {dev_macro_f1:.4f}). Calibrated to probabilities with "
+            f"a={platt_a:.4f}, b={platt_b:.4f} (decision threshold "
+            f"{metadata['tau_probability']:.4f}); non-candidate pairs scored at {floor:.2e}."
         )
 
     def _fit(self, rows, labels, train_mask, dev_mask, scores=None, thresholds=None):
@@ -299,13 +303,9 @@ class LearningToRankEnsemble(VotingEnsemble):
 
     @property
     def decision_threshold(self):
-        """Decision threshold on the scale `predict` returns.
-
-        Zero for rankers calibrated before Platt scaling was introduced - those still subtract tau
-        from the score themselves.
-        """
+        """Probability a candidate has to exceed, the operating point macro-F1 peaks at."""
         self._load()
-        return float(self._metadata.get("tau_logodds", 0.0))
+        return float(self._metadata["tau_probability"])
 
     def predict(self, test_predictions, molecules=None):
         self._load()
@@ -314,15 +314,18 @@ class LearningToRankEnsemble(VotingEnsemble):
         raw = self._booster.predict(design_matrix(rows, self._class_stats)).astype(
             np.float32
         )
-        if "platt_a" in self._metadata:
-            # calibrated log-odds, with the decision threshold left to the caller so that the
-            # inconsistency resolution sees an unshifted scale
-            net = self._metadata["platt_a"] * raw + self._metadata["platt_b"]
-            floor = self._metadata["floor_logodds"]
-        else:
-            net, floor = raw - self._metadata["tau"], None
+        # the ranker score is not a probability, so it goes through the calibration fitted during
+        # `calibrate`; the decision threshold is left to the caller so that inconsistency
+        # resolution sees the probabilities themselves
+        net = 1.0 / (
+            1.0 + np.exp(-(self._metadata["platt_a"] * raw + self._metadata["platt_b"]))
+        )
         dense = dense_from_pairs(
-            rows["molecule"], rows["class_index"], net, scores.shape[:2], floor=floor
+            rows["molecule"],
+            rows["class_index"],
+            net.astype(np.float32),
+            scores.shape[:2],
+            floor=self._metadata["floor"],
         )
         return {
             "net_score": torch.from_numpy(dense),

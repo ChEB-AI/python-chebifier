@@ -178,11 +178,14 @@ def resolve_and_decide(
     predicted_classes: list[str],
     inconsistency_resolution: Optional[str] = "score-based",
     inconsistency_resolution_params: Optional[dict] = None,
-    decision_threshold: float = 0,
+    decision_threshold: float = 0.5,
     chebi_graph=None,
     disjoint_files=None,
 ) -> dict:
     """Resolve inconsistencies in aggregated predictions and turn them into class decisions.
+
+    Net scores are probabilities, so `decision_threshold` defaults to the neutral point. Ensembles
+    that tune their own operating point report it as `BaseEnsemble.decision_threshold`.
 
     `aggregated_predictions` is not modified, so the same aggregation can be passed to several
     resolution variants. Pass `inconsistency_resolution=None` or "none" to skip the resolution,

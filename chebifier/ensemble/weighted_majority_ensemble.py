@@ -3,23 +3,23 @@ from pathlib import Path
 import pandas as pd
 import torch
 
-from chebifier.ensemble.voting_ensemble import VotingEnsemble
+from chebifier.ensemble.voting_ensemble import WMVwithConfidenceEnsemble
 
 N_FOLDS = 5
 WEIGHTING_STRENGTH_GRID = [0, 0.25, 0.5, 0.75, 1]
 
 
-class WMVwithF1Ensemble(VotingEnsemble):
+class WMVwithF1Ensemble(WMVwithConfidenceEnsemble):
 
     def __init__(
         self,
         ensemble_dir: str,
-        use_confidence: bool = True,
         weighting_strength=None,
         weighting_exponent=None,
         **kwargs,
     ):
-        """WMV ensemble that weights models based on their class-wise F1 scores. For each class, the weight is calculated as:
+        """WMV ensemble that weights models based on their class-wise F1 scores, on top of the
+        confidence weighting of WMVwithConfidenceEnsemble. For each class, the weight is calculated as:
         weight = model_weight * (weighting_strength * F1 + (1 - weighting_strength)) ** weighting_exponent
         where F1 is the class-specific F1 score ("trust") of the model on the validation set.
 
@@ -27,7 +27,7 @@ class WMVwithF1Ensemble(VotingEnsemble):
         calibration (best_hyperparameters.csv in the ensemble directory), falling back to 1 if the
         ensemble has not been calibrated. Values passed here take precedence over both.
         """
-        super().__init__(ensemble_dir, use_confidence, **kwargs)
+        super().__init__(ensemble_dir, **kwargs)
         self.weighting_strength = weighting_strength
         self.weighting_exponent = weighting_exponent
         self.model_f1_scores = None

@@ -27,12 +27,13 @@ class BaseEnsemble:
 
     @property
     def decision_threshold(self):
-        """Value a net score has to exceed for the class to be predicted.
+        """Probability a class has to exceed to be predicted.
 
-        Zero for every ensemble whose scores are already centred on their decision boundary; only
-        ensembles that emit a calibrated, unshifted scale need to override this.
+        Ensembles report probabilities, so the default is the neutral point: predict a class when
+        the ensemble believes it more likely than not. Ensembles that tune their own operating
+        point (to maximise macro-F1, say) override this.
         """
-        return 0.0
+        return 0.5
 
     def calibrate(
         self,

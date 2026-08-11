@@ -3,8 +3,6 @@ import torch
 from chebifier.inconsistency_resolution import (
     PredictionSmoother,
     densified_exclusion_pairs,
-    from_prob,
-    to_prob,
 )
 
 
@@ -15,12 +13,10 @@ class ILRSmoother(PredictionSmoother):
         label_names=None,
         disjoint_files=None,
         verbose=False,
-        k=1.0,
         alpha=1.0,
         max_iter=10,
         tol=1e-4,
     ):
-        self.k = k
         self.alpha = alpha
         self.max_iter = max_iter
         self.tol = tol
@@ -79,7 +75,7 @@ class ILRSmoother(PredictionSmoother):
         if preds.shape[1] == 0:
             return preds
         self._valid = valid_mask
-        p = to_prob(preds, self.k)
+        p = preds.clamp(0.0, 1.0)
         original = p
         self.last_iterations = 0
         for _ in range(self.max_iter):
@@ -93,7 +89,7 @@ class ILRSmoother(PredictionSmoother):
             p = p_new
         self.max_iterations = max(self.max_iterations, self.last_iterations)
         self._valid = None
-        return from_prob(p, self.k)
+        return p
 
 
 class GodelILRSmoother(ILRSmoother):

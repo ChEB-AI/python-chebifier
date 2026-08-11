@@ -4,9 +4,10 @@ from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
 
 from chebifier.inconsistency_resolution import (
+    NEUTRAL,
     ScoreBasedPredictionSmoother,
     densified_exclusion_matrix,
-    from_prob,
+    to_logit,
 )
 
 
@@ -17,12 +18,10 @@ class HexSmoother(ScoreBasedPredictionSmoother):
         label_names=None,
         disjoint_files=None,
         verbose=False,
-        k=1.0,
         delta=0.0,
         max_states=2**20,
         max_component_size=40,
     ):
-        self.k = k
         self.delta = delta
         self.max_states = max_states
         self.max_component_size = max_component_size
@@ -134,11 +133,13 @@ class HexSmoother(ScoreBasedPredictionSmoother):
         return viol
 
     def _resolve_row(self, f, scores, valid):
-        pos = scores > 0
+        pos = scores > NEUTRAL
         known = torch.ones_like(pos) if valid is None else valid
         if valid is not None:
             pos = pos & valid
-        active = ((scores.abs() < self.delta) | self._violating(pos)) & known
+        active = (
+            ((scores - NEUTRAL).abs() < self.delta) | self._violating(pos)
+        ) & known
         idx = torch.nonzero(active).flatten()
         if idx.numel() == 0:
             return scores
@@ -165,8 +166,8 @@ class HexSmoother(ScoreBasedPredictionSmoother):
                 break
             value[idx[forced_one]] = True
             value[idx[forced_zero]] = False
-            out[idx[forced_one]] = from_prob(torch.ones(1), self.k).item()
-            out[idx[forced_zero]] = from_prob(torch.zeros(1), self.k).item()
+            out[idx[forced_one]] = 1.0
+            out[idx[forced_zero]] = 0.0
             free = free & ~newly
             active = active.clone()
             active[idx[newly]] = False
@@ -191,14 +192,16 @@ class HexSmoother(ScoreBasedPredictionSmoother):
             order, states = enumerated
             st = torch.from_numpy(states).to(f.dtype)
             weights = torch.softmax(st @ f[torch.from_numpy(order)], dim=0)
-            out[torch.from_numpy(order)] = from_prob(weights @ st, self.k)
+            out[torch.from_numpy(order)] = weights @ st
         return out
 
     def __call__(self, preds, valid_mask=None):
         if preds.shape[1] == 0:
             return preds
         out = preds.clone()
-        f = self.k * preds
+        # the softmax over legal states is a log-linear model, P(state) proportional to
+        # exp(sum of the logits that are on), so this is the one step that needs log-odds
+        f = to_logit(preds)
         for row in range(preds.shape[0]):
             valid = valid_mask[row] if valid_mask is not None else None
             resolved = self._resolve_row(f[row], preds[row], valid)

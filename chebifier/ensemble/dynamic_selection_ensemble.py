@@ -14,6 +14,7 @@ from chebifier.ensemble.level1 import (
     cv_folds,
     dense_from_pairs,
     holdout_split,
+    noncandidate_probability,
     pair_scorer,
     rescale_to_threshold,
     save_hyperparameter_results,
@@ -289,9 +290,8 @@ def aggregate(delta, chunk, competence_threshold, vote):
     if vote == "confidence":
         direction = direction * 2.0 * np.abs(chunk.profiles - POSITIVE_THRESHOLD)
     total = weight.sum(axis=1)
-    return ((weight * direction).sum(axis=1) / np.maximum(total, 1e-6)).astype(
-        np.float32
-    )
+    agreement = (weight * direction).sum(axis=1) / np.maximum(total, 1e-6)
+    return np.clip(0.5 + agreement / 2, 0.0, 1.0).astype(np.float32)
 
 
 class DynamicSelectionEnsemble(VotingEnsemble):
@@ -407,6 +407,11 @@ class DynamicSelectionEnsemble(VotingEnsemble):
             labels, candidates.molecule, candidates.class_index, dev_mask
         )
         tau, dev_macro_f1 = scorer.tune(net[keep])
+        floor = noncandidate_probability(
+            scores.shape[0] * scores.shape[1] - candidates.molecule.size,
+            int(labels.sum())
+            - int(labels[candidates.molecule, candidates.class_index].sum()),
+        )
 
         # the meta-classifier and tau are fitted with the dev molecules held out of the reference
         # set, but nothing stops prediction from looking neighbours up in all of them
@@ -433,10 +438,10 @@ class DynamicSelectionEnsemble(VotingEnsemble):
                 "consensus_threshold": float(self.consensus_threshold),
                 "competence_threshold": float(self.competence_threshold),
                 "tau": float(tau),
+                "floor": floor,
                 "n_classes": int(scores.shape[1]),
                 "n_dsel": int(reference_mask.sum()),
                 "dev_macro_f1": float(dev_macro_f1),
-                "normalized": True,
             },
         )
         print(
@@ -732,12 +737,11 @@ class DynamicSelectionEnsemble(VotingEnsemble):
             )
         with open(self._metadata_path, "r", encoding="utf-8") as f:
             self._metadata = json.load(f)
-        if not self._metadata.get("normalized"):
+        if "floor" not in self._metadata:
             raise ValueError(
-                f"The ensemble in {self.ensemble_dir} was calibrated before net scores were "
-                "normalised by the selection weight. Its stored tau is on the old (unnormalised) "
-                "scale and would reject every prediction. Please re-run `chebifier build` for this "
-                "ensemble."
+                f"The ensemble in {self.ensemble_dir} was calibrated before scores became "
+                "probabilities. Its stored tau is on the old scale and would reject every "
+                "prediction. Please re-run `chebifier build` for this ensemble."
             )
         with open(self._classifier_path, "rb") as f:
             self._classifier = pickle.load(f)
@@ -809,10 +813,17 @@ class DynamicSelectionEnsemble(VotingEnsemble):
         dense = dense_from_pairs(
             candidates.molecule,
             candidates.class_index,
-            net - self._metadata["tau"],
+            net,
             scores.shape[:2],
+            floor=self._metadata["floor"],
         )
         return {
             "net_score": torch.from_numpy(dense),
             "has_valid_predictions": torch.from_numpy((~np.isnan(scores)).any(axis=2)),
         }
+
+    @property
+    def decision_threshold(self):
+        """Probability a candidate has to exceed, the operating point macro-F1 peaks at."""
+        self._load()
+        return float(self._metadata["tau"])

@@ -165,13 +165,15 @@ def dense_from_pairs(molecule, class_index, net, shape, floor=None):
 
 
 def fit_platt(scores, labels):
-    """Fit `P(positive) = sigmoid(a * score + b)` so that `a * score + b` is calibrated log-odds.
+    """Fit `P(positive) = sigmoid(a * score + b)`, turning a raw score into a probability.
 
     A lambdarank score is only trained to order pairs within a group, so its scale carries no
-    probabilistic meaning. Inconsistency resolution needs one: it compares scores across classes and
-    maps them through `sigmoid(k * score)`. Being a monotone map, this leaves the ensemble's own
-    thresholded decisions untouched - what it buys is a scale on which those downstream comparisons
-    are meaningful.
+    probabilistic meaning. Inconsistency resolution needs one: it compares scores across classes.
+    Being a monotone map, this leaves the ensemble's own thresholded decisions untouched - what it
+    buys is a scale on which those downstream comparisons are meaningful.
+
+    The voting ensembles need no equivalent: their weighted agreement fraction is already a well
+    calibrated probability, and a logistic fit measurably degrades it.
     """
     from sklearn.linear_model import LogisticRegression
 
@@ -187,17 +189,16 @@ def fit_platt(scores, labels):
     return slope, intercept
 
 
-def noncandidate_log_odds(n_noncandidate, n_missed_positives):
-    """Log-odds that a pair outside the candidate set is nevertheless a positive.
+def noncandidate_probability(n_noncandidate, n_missed_positives):
+    """Probability that a pair outside the candidate set is nevertheless a positive.
 
     Candidate selection keeps only the top-k classes per model, so the pairs it drops are not
     "unknown" - they are overwhelmingly true negatives, and how overwhelmingly is measurable on the
     validation set. This turns the fill value for those pairs from an arbitrary floor into a
-    calibrated score that can be compared against the candidates. The Jeffreys-style pseudo-count
-    keeps the result finite when no positive is missed at all.
+    calibrated probability that can be compared against the candidates. The Jeffreys-style
+    pseudo-count keeps the result non-zero when no positive is missed at all.
     """
-    p = (n_missed_positives + 0.5) / (n_noncandidate + 1.0)
-    return float(np.log(p / (1.0 - p)))
+    return float((n_missed_positives + 0.5) / (n_noncandidate + 1.0))
 
 
 def save_hyperparameter_results(ensemble_dir, results, best):
