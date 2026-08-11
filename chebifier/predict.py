@@ -229,7 +229,7 @@ def predict(
     resolve_inconsistencies: bool = True,
     inconsistency_resolution: str = "score-based",
     inconsistency_resolution_params: Optional[dict] = None,
-    decision_threshold: float = 0,
+    decision_threshold: Optional[float] = None,
     classes: Optional[list[str]] = None,
     split: str = "test",
 ) -> dict:
@@ -245,7 +245,8 @@ def predict(
             -> if the molecules change, you have to empty the cache or provide a new cache directory).
         resolve_inconsistencies (bool): Whether to resolve inconsistencies in the aggregated predictions.
         inconsistency_resolution (str): Which resolution method to use, see SMOOTHER_NAMES.
-        decision_threshold (float): Threshold for class decisions based on net score. Default is 0.
+        decision_threshold (Optional[float]): Threshold for class decisions based on net score.
+            If None (the default), the threshold reported by the ensemble is used.
         classes (Optional[list[str]]): Column space to map the base learner predictions onto, see
             collect_base_learner_predictions. If None (the default), the union of all classes is used.
         split (str): Name of the dataset split, used to separate cached base learner predictions of
@@ -269,5 +270,9 @@ def predict(
             inconsistency_resolution if resolve_inconsistencies else "none"
         ),
         inconsistency_resolution_params=inconsistency_resolution_params,
-        decision_threshold=decision_threshold,
+        decision_threshold=(
+            ensemble_model.decision_threshold
+            if decision_threshold is None
+            else decision_threshold
+        ),
     )

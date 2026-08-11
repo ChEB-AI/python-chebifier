@@ -74,6 +74,11 @@ class VotingEnsemble(BaseEnsemble):
         """
         Aggregates predictions from multiple models using weighted majority voting.
         weights are only the self-reported confidence (=difference between prediction and threshold). If set to false, all models are weighted equally.
+
+        The net score is normalised by the weight mass that was cast, so it is a signed agreement
+        fraction in [-1, 1] rather than a sum over models. This keeps classes covered by different
+        numbers of base learners comparable, which matters downstream: inconsistency resolution
+        compares scores across classes. The sign is unaffected, so class decisions do not change.
         """
         predictions_tensor = torch.stack(
             list(test_predictions.values()), dim=2
@@ -136,7 +141,9 @@ class VotingEnsemble(BaseEnsemble):
         )  # Shape: (num_molecules, num_classes)
 
         # Determine which classes to include for each molecule
-        net_score = positive_sum - negative_sum  # Shape: (num_molecules, num_classes)
+        net_score = (positive_sum - negative_sum) / (positive_sum + negative_sum).clamp(
+            min=1e-6
+        )  # Shape: (num_molecules, num_classes)
         return {
             "net_score": net_score,
             "has_valid_predictions": has_valid_predictions,

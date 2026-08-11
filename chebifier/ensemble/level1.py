@@ -46,6 +46,31 @@ def coverage_of(scores):
     return ~np.isnan(scores).all(axis=0)
 
 
+def class_statistics(scores, labels, thresholds, molecule_mask=None, chunk_size=512):
+    """Per-class statistics of the base learners: one F1 score per (class, model), followed by the
+    prevalence and the number of positives of the class. NaN scores count as negative predictions,
+    matching the class-wise F1 scores of the weighted majority vote ensemble."""
+    rows = (
+        np.arange(labels.shape[0])
+        if molecule_mask is None
+        else np.flatnonzero(molecule_mask)
+    )
+    counts = np.zeros((3, scores.shape[1], scores.shape[2]), dtype=np.int64)
+    for start in range(0, len(rows), chunk_size):
+        block = rows[start : start + chunk_size]
+        predicted = scores[block] > thresholds
+        truth = labels[block][:, :, None]
+        counts[0] += (predicted & truth).sum(axis=0)
+        counts[1] += (predicted & ~truth).sum(axis=0)
+        counts[2] += (~predicted & truth).sum(axis=0)
+    tp, fp, fn = counts
+    f1 = 2 * tp / np.maximum(2 * tp + fp + fn, 1)
+    positives = labels[rows].sum(axis=0)
+    return np.column_stack([f1, positives / max(len(rows), 1), positives]).astype(
+        np.float32
+    )
+
+
 def select_candidates(scores, k):
     n_molecules, n_classes, n_models = scores.shape
     k = min(k, n_classes)
@@ -131,11 +156,48 @@ def pair_scorer(labels, molecule, class_index, molecule_mask):
     return PairScorer(labels[rows], remap[molecule[keep]], class_index[keep]), keep
 
 
-def dense_from_pairs(molecule, class_index, net, shape):
-    floor = min(float(net.min()) - 1.0, -1.0) if net.size else -1.0
+def dense_from_pairs(molecule, class_index, net, shape, floor=None):
+    if floor is None:
+        floor = min(float(net.min()) - 1.0, -1.0) if net.size else -1.0
     dense = np.full(shape, floor, dtype=np.float32)
     dense[molecule, class_index] = net
     return dense
+
+
+def fit_platt(scores, labels):
+    """Fit `P(positive) = sigmoid(a * score + b)` so that `a * score + b` is calibrated log-odds.
+
+    A lambdarank score is only trained to order pairs within a group, so its scale carries no
+    probabilistic meaning. Inconsistency resolution needs one: it compares scores across classes and
+    maps them through `sigmoid(k * score)`. Being a monotone map, this leaves the ensemble's own
+    thresholded decisions untouched - what it buys is a scale on which those downstream comparisons
+    are meaningful.
+    """
+    from sklearn.linear_model import LogisticRegression
+
+    scores = np.asarray(scores, dtype=np.float64).reshape(-1, 1)
+    platt = LogisticRegression(C=1e6).fit(scores, np.asarray(labels))
+    slope, intercept = float(platt.coef_[0, 0]), float(platt.intercept_[0])
+    if slope <= 0:
+        raise ValueError(
+            f"Platt calibration found a non-positive slope ({slope:.4g}), meaning the ranker scores "
+            "anti-correlate with the labels. Refusing to calibrate - check the base learner "
+            "predictions and the ranker training."
+        )
+    return slope, intercept
+
+
+def noncandidate_log_odds(n_noncandidate, n_missed_positives):
+    """Log-odds that a pair outside the candidate set is nevertheless a positive.
+
+    Candidate selection keeps only the top-k classes per model, so the pairs it drops are not
+    "unknown" - they are overwhelmingly true negatives, and how overwhelmingly is measurable on the
+    validation set. This turns the fill value for those pairs from an arbitrary floor into a
+    calibrated score that can be compared against the candidates. The Jeffreys-style pseudo-count
+    keeps the result finite when no positive is missed at all.
+    """
+    p = (n_missed_positives + 0.5) / (n_noncandidate + 1.0)
+    return float(np.log(p / (1.0 - p)))
 
 
 def save_hyperparameter_results(ensemble_dir, results, best):

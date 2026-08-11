@@ -25,6 +25,15 @@ class BaseEnsemble:
     def ensemble_name(self):
         return self.__class__.__name__
 
+    @property
+    def decision_threshold(self):
+        """Value a net score has to exceed for the class to be predicted.
+
+        Zero for every ensemble whose scores are already centred on their decision boundary; only
+        ensembles that emit a calibrated, unshifted scale need to override this.
+        """
+        return 0.0
+
     def calibrate(
         self,
         validation_predictions: dict[str, torch.Tensor],

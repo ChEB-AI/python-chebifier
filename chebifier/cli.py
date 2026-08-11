@@ -98,6 +98,25 @@ def parse_ir_params(ir_param):
     return params
 
 
+def parse_ensemble_params(ensemble_param):
+    """Parse key=value arguments into keyword arguments for the ensemble constructor. Unlike the
+    inconsistency resolution parameters, these are coerced to int where possible - passing a float
+    where the ensemble expects a count (e.g. region_size) fails deep inside numpy."""
+    params = {}
+    for entry in ensemble_param:
+        if "=" not in entry:
+            raise click.BadParameter(f"Expected key=value, got '{entry}'")
+        key, value = entry.split("=", 1)
+        for cast in (int, float):
+            try:
+                value = cast(value)
+                break
+            except ValueError:
+                continue
+        params[key.strip()] = value
+    return params
+
+
 def load_dataset(data_path, split: Literal["train", "validation", "test"]):
     data_file = os.path.join(data_path, "data.pkl")
     splits_file = os.path.join(data_path, "splits.csv")
@@ -198,12 +217,27 @@ def cli():
 @cli.command()
 @ensemble_options
 @data_options
+@click.option(
+    "--ensemble-param",
+    "-ep",
+    multiple=True,
+    help="Extra key=value argument for the ensemble constructor, e.g. -ep candidate_k=70 "
+    "(repeatable). Parameters that change the stored model are written to the ensemble's "
+    "metadata, so 'evaluate' does not need to be given them again.",
+)
 def build(
-    ensemble_config, ensemble_type, ensemble_dir, prediction_cache_dir, data_path
+    ensemble_config,
+    ensemble_type,
+    ensemble_dir,
+    prediction_cache_dir,
+    data_path,
+    ensemble_param,
 ):
     """Build (calibrate) an ensemble on the ChEBI validation set."""
     base_learners = build_base_learners(ensemble_config)
-    ensemble_model = ENSEMBLES[ensemble_type](ensemble_dir)
+    ensemble_model = ENSEMBLES[ensemble_type](
+        ensemble_dir, **parse_ensemble_params(ensemble_param)
+    )
 
     # TODO: Hugging Face support
     validation_data, validation_labels = load_dataset(data_path, split="validation")
@@ -357,6 +391,7 @@ def evaluate(
                 inconsistency_resolution_params=ir_params,
                 chebi_graph=chebi_graph,
                 disjoint_files=disjoint_files,
+                decision_threshold=ensemble_model.decision_threshold,
             )
             target = output_path(dir_, variant)
             os.makedirs(os.path.dirname(os.path.abspath(target)), exist_ok=True)
@@ -366,6 +401,7 @@ def evaluate(
                 scores=predictions["net_score"].numpy(),
                 decisions=predictions["class_decisions"].numpy(),
                 has_valid_predictions=predictions["has_valid_predictions"].numpy(),
+                decision_threshold=np.array(ensemble_model.decision_threshold),
             )
             print(
                 f"Saved {type_} predictions for split '{split}' "

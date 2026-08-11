@@ -25,18 +25,27 @@ from chebifier.ensemble.voting_ensemble import VotingEnsemble
 
 MORGAN_RADIUS = 2
 MORGAN_BITS = 2048
+# without chirality, ECFP4 gives stereoisomers - which are distinct ChEBI classes - the same
+# fingerprint, so the region of competence can be anchored on a molecule of a different class
+MORGAN_CHIRALITY = True
 REGION_SIZE_GRID = (1, 7)
 PROFILE_SIZE_GRID = (5, 9, 15)
 VOTE_GRID = ("plain", "confidence")
 CHUNK_SIZE = 512
+MAX_META_SAMPLES = 2_000_000
+MLP_HIDDEN_LAYERS = (64, 32)
 
 
-def fingerprints(molecules, radius=MORGAN_RADIUS, n_bits=MORGAN_BITS):
+def fingerprints(
+    molecules, radius=MORGAN_RADIUS, n_bits=MORGAN_BITS, chirality=MORGAN_CHIRALITY
+):
     from rdkit import Chem, RDLogger
     from rdkit.Chem import rdFingerprintGenerator
 
     RDLogger.DisableLog("rdApp.*")
-    generator = rdFingerprintGenerator.GetMorganGenerator(radius=radius, fpSize=n_bits)
+    generator = rdFingerprintGenerator.GetMorganGenerator(
+        radius=radius, fpSize=n_bits, includeChirality=chirality
+    )
     out = np.zeros((len(molecules), n_bits), dtype=np.uint8)
     ok = np.zeros(len(molecules), dtype=bool)
     for i, molecule in enumerate(molecules):
@@ -204,7 +213,14 @@ class MetaChunk:
 
 
 def build_chunk(
-    candidates, pair_slice, region, output_profiles, dsel, coverage, labels=None
+    candidates,
+    pair_slice,
+    region,
+    output_profiles,
+    dsel,
+    coverage,
+    labels=None,
+    model_id=False,
 ):
     first, last = pair_slice
     molecule = candidates.molecule[first:last]
@@ -231,16 +247,21 @@ def build_chunk(
     filled_query = np.nan_to_num(query_scores, nan=POSITIVE_THRESHOLD)
     f5 = 2.0 * np.abs(filled_query - POSITIVE_THRESHOLD)
 
-    X = np.concatenate(
-        [
-            f1.transpose(0, 2, 1).astype(np.float32),
-            np.nan_to_num(f2, nan=POSITIVE_THRESHOLD).transpose(0, 2, 1),
-            f3[:, :, None],
-            f4.transpose(0, 2, 1).astype(np.float32),
-            f5[:, :, None],
-        ],
-        axis=2,
-    )
+    blocks = [
+        f1.transpose(0, 2, 1).astype(np.float32),
+        np.nan_to_num(f2, nan=POSITIVE_THRESHOLD).transpose(0, 2, 1),
+        f3[:, :, None],
+        f4.transpose(0, 2, 1).astype(np.float32),
+        f5[:, :, None],
+    ]
+    if model_id:
+        n_models = covered.shape[1]
+        blocks.append(
+            np.broadcast_to(
+                np.eye(n_models, dtype=np.float32), (len(molecule), n_models, n_models)
+            )
+        )
+    X = np.concatenate(blocks, axis=2)
 
     alpha = None
     if labels is not None:
@@ -267,7 +288,10 @@ def aggregate(delta, chunk, competence_threshold, vote):
     direction = np.where(chunk.profiles > POSITIVE_THRESHOLD, 1.0, -1.0)
     if vote == "confidence":
         direction = direction * 2.0 * np.abs(chunk.profiles - POSITIVE_THRESHOLD)
-    return (weight * direction).sum(axis=1).astype(np.float32)
+    total = weight.sum(axis=1)
+    return ((weight * direction).sum(axis=1) / np.maximum(total, 1e-6)).astype(
+        np.float32
+    )
 
 
 class DynamicSelectionEnsemble(VotingEnsemble):
@@ -285,9 +309,27 @@ class DynamicSelectionEnsemble(VotingEnsemble):
         profile_size_grid=PROFILE_SIZE_GRID,
         vote_grid=VOTE_GRID,
         chunk_size: int = CHUNK_SIZE,
+        use_model_id: bool = True,
+        meta_classifier: str = "nb",
+        max_meta_samples: int = MAX_META_SAMPLES,
+        morgan_radius: int = MORGAN_RADIUS,
+        morgan_bits: int = MORGAN_BITS,
+        morgan_chirality: bool = MORGAN_CHIRALITY,
+        full_dsel: bool = False,
         **kwargs,
     ):
         super().__init__(ensemble_dir)
+        self.morgan_radius = int(morgan_radius)
+        self.morgan_bits = int(morgan_bits)
+        self.morgan_chirality = bool(morgan_chirality)
+        self.full_dsel = bool(full_dsel)
+        if meta_classifier not in ("nb", "mlp"):
+            raise ValueError(
+                f"Unknown meta_classifier '{meta_classifier}', expected 'nb' or 'mlp'."
+            )
+        self.use_model_id = bool(use_model_id)
+        self.meta_classifier = meta_classifier
+        self.max_meta_samples = int(max_meta_samples)
         self.candidate_k = candidate_k
         self.region_size = region_size
         self.profile_size = profile_size
@@ -325,7 +367,9 @@ class DynamicSelectionEnsemble(VotingEnsemble):
         thresholds = threshold_array(self._load_prediction_thresholds(), model_names)
         labels = np.asarray(validation_labels, dtype=bool)
         coverage = coverage_of(scores)
-        molecule_fingerprints, parsed = fingerprints(validation_data)
+        molecule_fingerprints, parsed = fingerprints(
+            validation_data, self.morgan_radius, self.morgan_bits, self.morgan_chirality
+        )
         if not parsed.all():
             print(
                 f"{int((~parsed).sum())} of {len(parsed)} validation molecules could not be "
@@ -364,12 +408,15 @@ class DynamicSelectionEnsemble(VotingEnsemble):
         )
         tau, dev_macro_f1 = scorer.tune(net[keep])
 
+        # the meta-classifier and tau are fitted with the dev molecules held out of the reference
+        # set, but nothing stops prediction from looking neighbours up in all of them
+        reference_mask = parsed if self.full_dsel else dsel_mask
         self._save(
             classifier,
             scores,
             labels,
             molecule_fingerprints,
-            dsel_mask,
+            reference_mask,
             coverage,
             {
                 "model_names": model_names,
@@ -377,17 +424,25 @@ class DynamicSelectionEnsemble(VotingEnsemble):
                 "region_size": int(region_size),
                 "profile_size": int(profile_size),
                 "vote": vote,
+                "use_model_id": self.use_model_id,
+                "meta_classifier": self.meta_classifier,
+                "morgan_radius": self.morgan_radius,
+                "morgan_bits": self.morgan_bits,
+                "morgan_chirality": self.morgan_chirality,
+                "full_dsel": self.full_dsel,
                 "consensus_threshold": float(self.consensus_threshold),
                 "competence_threshold": float(self.competence_threshold),
                 "tau": float(tau),
                 "n_classes": int(scores.shape[1]),
-                "n_dsel": int(dsel_mask.sum()),
+                "n_dsel": int(reference_mask.sum()),
                 "dev_macro_f1": float(dev_macro_f1),
+                "normalized": True,
             },
         )
         print(
             f"Saved meta-classifier to {self._classifier_path} (region_size={region_size}, "
-            f"profile_size={profile_size}, vote={vote}, tau={tau:.4f}, "
+            f"profile_size={profile_size}, vote={vote}, meta_classifier={self.meta_classifier}, "
+            f"use_model_id={self.use_model_id}, tau={tau:.4f}, "
             f"held-out macro-f1: {dev_macro_f1:.4f})."
         )
 
@@ -417,20 +472,24 @@ class DynamicSelectionEnsemble(VotingEnsemble):
         )
         return region, profiles
 
-    def _fit_meta_classifier(
+    def _meta_samples(
         self, candidates, region, profiles, dsel, coverage, molecule_mask, labels
     ):
-        from sklearn.naive_bayes import GaussianNB
-
-        classifier = GaussianNB()
-        meta_classes = np.array([0, 1])
-        fitted = False
+        """The meta-training samples, one block of (features, is the base learner correct?) rows
+        per chunk of molecules. Only pairs the base learners disagree on are kept."""
         for start, end, pair_slice in candidates.iter_chunks(self.chunk_size):
             block = molecule_mask[start:end]
             if not block.any():
                 continue
             chunk = build_chunk(
-                candidates, pair_slice, region, profiles, dsel, coverage, labels=labels
+                candidates,
+                pair_slice,
+                region,
+                profiles,
+                dsel,
+                coverage,
+                labels=labels,
+                model_id=self.use_model_id,
             )
             keep = block[chunk.molecule - start] & (
                 chunk.consensus < self.consensus_threshold
@@ -440,15 +499,70 @@ class DynamicSelectionEnsemble(VotingEnsemble):
             mask = chunk.covered & keep[:, None]
             if not mask.any():
                 continue
-            classifier.partial_fit(
-                chunk.X[mask], chunk.alpha[mask], classes=meta_classes
-            )
-            fitted = True
-        if not fitted:
+            yield chunk.X[mask], chunk.alpha[mask]
+
+    def _fit_meta_classifier(
+        self, candidates, region, profiles, dsel, coverage, molecule_mask, labels
+    ):
+        blocks = self._meta_samples(
+            candidates, region, profiles, dsel, coverage, molecule_mask, labels
+        )
+        if self.meta_classifier == "nb":
+            from sklearn.naive_bayes import GaussianNB
+
+            classifier = GaussianNB()
+            meta_classes = np.array([0, 1])
+            seen = np.zeros(2, dtype=np.int64)
+            for X, alpha in blocks:
+                classifier.partial_fit(X, alpha, classes=meta_classes)
+                seen += np.bincount(alpha.astype(np.int64), minlength=2)
+        else:
+            X, alpha = [], []
+            for block_X, block_alpha in blocks:
+                X.append(block_X)
+                alpha.append(block_alpha)
+            if not X:
+                X, alpha = [np.zeros((0, 0), dtype=np.float32)], [
+                    np.zeros(0, dtype=bool)
+                ]
+            X, alpha = np.concatenate(X), np.concatenate(alpha)
+            seen = np.bincount(alpha.astype(np.int64), minlength=2)
+            classifier = None
+            if seen.all():
+                if len(X) > self.max_meta_samples:
+                    print(
+                        f"Subsampling {len(X)} meta-training samples to {self.max_meta_samples}."
+                    )
+                    take = np.random.default_rng(RANDOM_SEED).choice(
+                        len(X), size=self.max_meta_samples, replace=False
+                    )
+                    X, alpha = X[take], alpha[take]
+                classifier = self._fit_mlp(X, alpha)
+        if not seen.all():
             raise RuntimeError(
-                "No meta-training samples survived the consensus filter. Increase "
+                f"Meta-training set is unusable ({seen[1]} correct / {seen[0]} incorrect base "
+                "learner predictions survived the consensus filter). Increase "
                 "consensus_threshold or check the base learner predictions."
             )
+        return classifier
+
+    def _fit_mlp(self, X, alpha):
+        from sklearn.neural_network import MLPClassifier
+        from sklearn.pipeline import make_pipeline
+        from sklearn.preprocessing import StandardScaler
+
+        print(f"Fitting MLP meta-classifier on {X.shape[0]} x {X.shape[1]} samples...")
+        classifier = make_pipeline(
+            StandardScaler(),
+            MLPClassifier(
+                hidden_layer_sizes=MLP_HIDDEN_LAYERS,
+                early_stopping=True,
+                n_iter_no_change=5,
+                max_iter=200,
+                random_state=RANDOM_SEED,
+            ),
+        )
+        classifier.fit(X, alpha)
         return classifier
 
     def _score(
@@ -470,7 +584,13 @@ class DynamicSelectionEnsemble(VotingEnsemble):
             if molecule_mask is not None and not molecule_mask[start:end].any():
                 continue
             chunk = build_chunk(
-                candidates, pair_slice, region, profiles, dsel, coverage
+                candidates,
+                pair_slice,
+                region,
+                profiles,
+                dsel,
+                coverage,
+                model_id=self.use_model_id,
             )
             delta = np.zeros(chunk.covered.shape, dtype=np.float32)
             if chunk.covered.any():
@@ -612,19 +732,35 @@ class DynamicSelectionEnsemble(VotingEnsemble):
             )
         with open(self._metadata_path, "r", encoding="utf-8") as f:
             self._metadata = json.load(f)
+        if not self._metadata.get("normalized"):
+            raise ValueError(
+                f"The ensemble in {self.ensemble_dir} was calibrated before net scores were "
+                "normalised by the selection weight. Its stored tau is on the old (unnormalised) "
+                "scale and would reject every prediction. Please re-run `chebifier build` for this "
+                "ensemble."
+            )
         with open(self._classifier_path, "rb") as f:
             self._classifier = pickle.load(f)
         self._thresholds = threshold_array(
             self._load_prediction_thresholds(), self._metadata["model_names"]
         )
+        # the stored reference fingerprints are of whatever kind calibration used, so the query
+        # fingerprints have to be built the same way rather than from today's defaults
+        self.morgan_radius = self._metadata["morgan_radius"]
+        self.morgan_bits = self._metadata["morgan_bits"]
+        self.morgan_chirality = self._metadata["morgan_chirality"]
         with np.load(self._dsel_path) as data:
             self._dsel = Dsel(data["scores"], data["labels"], self._thresholds)
             self._dsel_fingerprints = np.unpackbits(
-                data["fingerprints"], axis=1, count=MORGAN_BITS
+                data["fingerprints"], axis=1, count=self.morgan_bits
             )
             self._coverage = data["coverage"]
         self.consensus_threshold = self._metadata["consensus_threshold"]
         self.competence_threshold = self._metadata["competence_threshold"]
+        # the stored classifier was fit on a feature layout these two decide - restoring them is
+        # what lets `evaluate` load a variant without being told which one it is
+        self.use_model_id = self._metadata["use_model_id"]
+        self.meta_classifier = self._metadata["meta_classifier"]
 
     def predict(self, test_predictions, molecules=None):
         if molecules is None:
@@ -636,7 +772,9 @@ class DynamicSelectionEnsemble(VotingEnsemble):
         scores, _ = stack_predictions(
             test_predictions, self._metadata["model_names"], dtype=np.float16
         )
-        query_fingerprints, parsed = fingerprints(molecules)
+        query_fingerprints, parsed = fingerprints(
+            molecules, self.morgan_radius, self.morgan_bits, self.morgan_chirality
+        )
         candidates = Candidates(scores, self._metadata["candidate_k"], self._thresholds)
         dsel_candidates = Candidates(
             self._dsel.scores, self._metadata["candidate_k"], self._thresholds

@@ -182,7 +182,14 @@ ensembles, so inconsistency resolution and the decision threshold apply unchange
   (molecule, class) pair become the feature vector of a LambdaMART ranker (LightGBM) that ranks
   ChEBI classes per molecule. Features are the raw base learner scores plus the number of covering
   models and the max/mean/std over them; a global cutoff on the ranker score is calibrated on a
-  held-out 20% of the validation split.
+  held-out 20% of the validation split. Feature column *j* is always base learner *j*, so the
+  ranker can learn which model to trust — but the raw scores say nothing about the class being
+  scored. `class_stats` (on by default) adds that: one column per base learner holding its
+  validation F1 *for this class* (the same quantity `wmv-f1` weights by), plus the class prevalence
+  and its number of positives. To keep the labels of the scored molecules out of the features, the
+  statistics used during training are estimated on the training molecules only, while prediction
+  uses the statistics of the whole validation split. Set `class_stats=False` for the plain
+  GOLabeler feature set; that also skips the per-model threshold calibration the F1 scores need.
 - `des` — **dynamic ensemble selection**, an adaptation of
   [META-DES.H](https://arxiv.org/pdf/1811.01742): a `GaussianNB` meta-classifier estimates, per
   (molecule, class, base learner), how competent that base learner is *for this molecule*, and only
@@ -191,6 +198,31 @@ ensembles, so inconsistency resolution and the decision threshold apply unchange
   similarity on ECFP4, and the `profile_size` nearest output profiles. Because the neighbourhoods
   are looked up at prediction time, calibration stores the reference predictions, labels and
   fingerprints in the ensemble directory (~1 GB for a 20-model ensemble on ChEBI50).
+  The meta-features are otherwise purely behavioural — one meta-classifier is fitted over all
+  (molecule, class, base learner) rows pooled, and the paper's input identifies neither the base
+  learner nor the class, so competence is a function of local track record alone. `use_model_id`
+  (on by default) appends a one-hot encoding of the base learner, which lets the meta-classifier
+  express "model A is the stronger one here" instead of only "whichever model this is, it behaves
+  like *this*"; `use_model_id=False` restores the published feature set.
+  `meta_classifier="mlp"` replaces `GaussianNB` with a standardised two-layer `MLPClassifier`,
+  which drops the feature-independence assumption — a poor fit for these meta-features, since the
+  `region_size` correctness flags are strongly correlated with each other and with their own mean.
+  The MLP is fitted in one pass over the meta-training set rather than chunk-wise, which the
+  consensus filter keeps small (~130k rows for 8 base learners on ChEBI25 3-STAR);
+  `max_meta_samples` caps it if a larger ensemble overflows memory.
+  Two further options control the reference set rather than the meta-classifier.
+  `morgan_radius` / `morgan_bits` / `morgan_chirality` set the fingerprint the region of competence
+  is measured on. Plain ECFP4 cannot separate stereoisomers, which are distinct ChEBI classes, so
+  6.6% of ChEBI25 3-STAR validation molecules share a fingerprint with one carrying different
+  labels; `morgan_chirality` is therefore on by default, which halves that to 3.9%. Widening
+  `morgan_bits` changes nothing — the degeneracy is structural, not hash collisions.
+  `full_dsel=True` stores the whole validation split as the reference set instead of only the 80%
+  that the meta-classifier is fitted on, for denser neighbourhoods at prediction time.
+
+  Note that the region of competence excludes the query molecule itself during calibration but
+  not during prediction, where the query is genuinely unseen. Predicting for the validation split
+  therefore lets ~80% of molecules retrieve themselves as their own nearest neighbour, which makes
+  any validation-split metric for `des` optimistic. Use the test split.
 
 Both calibrate their hyperparameters by 5-fold cross-validation on the validation split, scoring
 macro-F1 on each held-out fold (the cutoff is tuned on a fold-internal dev set, so the reported
@@ -198,7 +230,12 @@ score is not tuned on the fold it is measured on). Only the parameters that move
 previous experiments are searched: `candidate_k` for `ltr`, and `region_size` / `profile_size` /
 `vote` for `des`. The ranker's own tree hyperparameters, and `des`'s consensus and competence
 thresholds, sit on a plateau and are left at their published values. Passing any searched parameter
-to the constructor skips the search for it. Results are written to `hyperparameter_search.csv` and
+to the constructor skips the search for it — `chebifier build` takes constructor arguments as
+`-ep key=value`, e.g.
+`-ep candidate_k=70 -ep class_stats=1` or `-ep region_size=7 -ep meta_classifier=mlp`. Arguments
+that change the stored model are recorded in the ensemble's metadata, so `chebifier evaluate` picks
+them up on its own. `scripts/reproduce_ablation_3star.ps1` compares the optional features above
+against their baselines this way. Results are written to `hyperparameter_search.csv` and
 `best_hyperparameters.csv` in the ensemble directory, as for `wmv-f1`.
 
 ### Inconsistency resolution
