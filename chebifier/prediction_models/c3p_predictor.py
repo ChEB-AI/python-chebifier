@@ -1,3 +1,4 @@
+import functools
 from pathlib import Path
 from typing import List, Optional
 
@@ -5,6 +6,32 @@ import tqdm
 
 from chebifier import modelwise_smiles_lru_cache
 from chebifier.prediction_models import BasePredictor
+from chebifier.utils import get_superclasses, to_smiles
+
+
+def _patch_c3p(c3p_classifier):
+    """Two things C3P 0.5.0 assumes that do not hold on Windows, both of which make it return no
+    classification at all rather than a wrong one:
+
+    - it reads its generated programs with `open(program, "r")`, i.e. in the platform default
+      encoding, while the programs are UTF-8. `open` is looked up in the module globals before the
+      builtins, so binding a UTF-8 `open` there fixes the reads without affecting any other module.
+    - it guards every program with timeout_decorator, which needs SIGALRM. Running the programs
+      without their 2s timeout is the only way to get predictions on a platform that has no
+      SIGALRM - timeout_decorator's signal-free mode forks a process per call, which is not
+      affordable for 300 programs per molecule.
+    """
+    import signal
+
+    if not hasattr(c3p_classifier, "open"):
+        c3p_classifier.open = functools.partial(open, encoding="utf-8")
+    if hasattr(signal, "SIGALRM"):
+        return
+    from c3p import learn
+
+    if hasattr(learn.eval_with_timeout, "__wrapped__"):
+        print("No SIGALRM on this platform, running C3P programs without a timeout.")
+        learn.eval_with_timeout = learn.eval_with_timeout.__wrapped__
 
 
 class C3PPredictor(BasePredictor):
@@ -28,6 +55,9 @@ class C3PPredictor(BasePredictor):
     def predict_list(self, smiles_list: list[str]) -> list:
         from c3p import classifier as c3p_classifier
 
+        _patch_c3p(c3p_classifier)
+        # C3P only takes SMILES, while the evaluation datasets hand out RDKit molecules
+        smiles_list = [to_smiles(molecule) for molecule in smiles_list]
         result_list = []
         for batch_start in tqdm.tqdm(
             range(0, len(smiles_list), 32), desc="Classifying with C3P"
@@ -55,9 +85,7 @@ class C3PPredictor(BasePredictor):
         for result in tqdm.tqdm(result_list, desc="Reformatting C3P results"):
             chebi_id = result.class_id.split(":")[1]
             if result.is_match and self.chebi_graph is not None:
-                parents = [
-                    str(parent) for parent in self.chebi_graph.predecessors(chebi_id)
-                ]
+                parents = get_superclasses(self.chebi_graph, chebi_id)
             else:
                 parents = []
             for idx in indices_by_smiles[result.input_smiles]:
@@ -74,6 +102,7 @@ class C3PPredictor(BasePredictor):
         """
         from c3p import classifier as c3p_classifier
 
+        _patch_c3p(c3p_classifier)
         highlights = []
         result_list = c3p_classifier.classify(
             [smiles], self.program_directory, self.chemical_classes, strict=False

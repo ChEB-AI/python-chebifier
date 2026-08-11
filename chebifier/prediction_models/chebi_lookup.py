@@ -6,7 +6,7 @@ from rdkit import Chem
 
 from chebifier import modelwise_smiles_lru_cache
 from chebifier.prediction_models import BasePredictor
-from chebifier.utils import _smiles_to_mol, load_chebi_graph
+from chebifier.utils import _smiles_to_mol, get_superclasses, load_chebi_graph
 
 
 class ChEBILookupPredictor(BasePredictor):
@@ -61,7 +61,7 @@ class ChEBILookupPredictor(BasePredictor):
                         smiles_lookup[canonical_smiles] = []
                     # if the canonical SMILES is already in the lookup, append "different interpretation of the SMILES"
                     smiles_lookup[canonical_smiles].append(
-                        (chebi_id, list(self.chebi_graph.predecessors(chebi_id)))
+                        (chebi_id, list(get_superclasses(self.chebi_graph, chebi_id)))
                     )
                 except Exception as e:
                     print(

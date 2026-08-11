@@ -10,8 +10,9 @@ Not all models can be installed automatically at the moment:
 - `chebai-graph` and its dependencies. To install them, follow
 the instructions in the [chebai-graph repository](https://github.com/ChEB-AI/python-chebai-graph).
 - `chemlog-extra` can be installed with `pip install git+https://github.com/ChEB-AI/chemlog-extra.git`
-- The automatically installed version of `c3p` may not work under Windows. If you want to run chebifier on Windows, we
-recommend using this forked version: `pip install git+https://github.com/sfluegel05/c3p.git`
+- `c3p` reads its generated programs assuming a UTF-8 locale and guards each of them with a
+SIGALRM-based timeout, neither of which holds on Windows. The `c3p` predictor works around both
+(see `_patch_c3p`), at the price of running the programs without a timeout there.
 
 
 You can get the package from PyPI:

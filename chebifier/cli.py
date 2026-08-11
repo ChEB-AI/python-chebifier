@@ -234,7 +234,9 @@ def build(
     ensemble_param,
 ):
     """Build (calibrate) an ensemble on the ChEBI validation set."""
-    base_learners = build_base_learners(ensemble_config)
+    base_learners = build_base_learners(
+        ensemble_config, prediction_cache_dir=prediction_cache_dir, split="validation"
+    )
     ensemble_model = ENSEMBLES[ensemble_type](
         ensemble_dir, **parse_ensemble_params(ensemble_param)
     )

@@ -4,6 +4,7 @@ import tqdm
 
 from chebifier import modelwise_smiles_lru_cache
 from chebifier.prediction_models.base_predictor import BasePredictor
+from chebifier.utils import CHEBI_VERSION, get_superclasses, to_mol
 
 AA_DICT = {
     "A": "L-alanine",
@@ -70,41 +71,41 @@ class ChemlogExtraPredictor(BasePredictor):
         return self._predict_smiles_list(smiles_list)
 
     def _predict_smiles_list(self, smiles_list: list[str]) -> list:
-        from chemlog.cli import _smiles_to_mol
-
-        mol_list = [_smiles_to_mol(smiles) for smiles in smiles_list]
+        mol_list = [to_mol(molecule) for molecule in smiles_list]
         res = self.classifier.classify(mol_list)
         if self.chebi_graph is not None:
             for sample in res:
                 sample_additions = dict()
                 for cls in sample:
                     if sample[cls] == 1:
-                        successors = list(self.chebi_graph.predecessors(cls))
-                        if successors:
-                            for succ in successors:
-                                sample_additions[str(succ)] = 1
+                        for superclass in get_superclasses(self.chebi_graph, cls):
+                            sample_additions[superclass] = 1
                 sample.update(sample_additions)
         return res
 
 
 class ChemlogXMolecularEntityPredictor(ChemlogExtraPredictor):
-    def __init__(self, model_name: str, **kwargs):
+    def __init__(self, model_name: str, chebi_version: int = CHEBI_VERSION, **kwargs):
         from chemlog_extra.alg_classification.by_element_classification import (
             XMolecularEntityClassifier,
         )
 
         super().__init__(model_name, **kwargs)
-        self.classifier = XMolecularEntityClassifier(chebi_graph=self.chebi_graph)
+        self.classifier = XMolecularEntityClassifier(
+            chebi_graph=self.chebi_graph, chebi_version=chebi_version
+        )
 
 
 class ChemlogOrganoXCompoundPredictor(ChemlogExtraPredictor):
-    def __init__(self, model_name: str, **kwargs):
+    def __init__(self, model_name: str, chebi_version: int = CHEBI_VERSION, **kwargs):
         from chemlog_extra.alg_classification.by_element_classification import (
             OrganoXCompoundClassifier,
         )
 
         super().__init__(model_name, **kwargs)
-        self.classifier = OrganoXCompoundClassifier(chebi_graph=self.chebi_graph)
+        self.classifier = OrganoXCompoundClassifier(
+            chebi_graph=self.chebi_graph, chebi_version=chebi_version
+        )
 
 
 class ChemlogLopsterPredictor(ChemlogExtraPredictor):
@@ -142,9 +143,9 @@ class ChemlogPeptidesPredictor(BasePredictor):
         print(f"Initialised ChemLog model {self.model_name}")
 
     def predict(self, smiles: str) -> Optional[dict]:
-        from chemlog.cli import _smiles_to_mol, strategy_call
+        from chemlog.cli import strategy_call
 
-        mol = _smiles_to_mol(smiles)
+        mol = to_mol(smiles)
         if mol is None:
             return None
         pos_labels = [
@@ -157,9 +158,9 @@ class ChemlogPeptidesPredictor(BasePredictor):
         ]
         if self.chebi_graph:
             indirect_pos_labels = [
-                str(pr)
+                superclass
                 for label in pos_labels
-                for pr in self.chebi_graph.predecessors(label)
+                for superclass in get_superclasses(self.chebi_graph, label)
             ]
             pos_labels = list(set(pos_labels + indirect_pos_labels))
         return {
@@ -181,7 +182,7 @@ class ChemlogPeptidesPredictor(BasePredictor):
 
         return results
 
-    def get_chemlog_result_info(self, smiles):
+    def get_chemlog_result_info(self, molecule):
         """Get classification for single molecule with additional information."""
         from chemlog.alg_classification.charge_classifier import get_charge_category
         from chemlog.alg_classification.peptide_size_classifier import (
@@ -194,10 +195,9 @@ class ChemlogPeptidesPredictor(BasePredictor):
             is_diketopiperazine,
             is_emericellamide,
         )
-        from chemlog.cli import _smiles_to_mol
 
-        mol = _smiles_to_mol(smiles)
-        if mol is None or not smiles:
+        mol = to_mol(molecule) if molecule else None
+        if mol is None:
             return {"error": "Failed to parse SMILES"}
 
         charge_category = get_charge_category(mol)
