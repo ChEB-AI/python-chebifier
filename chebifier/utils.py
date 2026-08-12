@@ -4,6 +4,7 @@ import os
 import pickle
 
 import networkx as nx
+import numpy as np
 import yaml
 from chebi_utils.obo_extractor import get_hierarchy_subgraph
 from rdkit import Chem
@@ -130,3 +131,18 @@ def get_superclasses(chebi_graph, chebi_id: str) -> tuple[str, ...]:
     if chebi_id not in isa_graph:
         return ()
     return tuple(str(cls) for cls in nx.descendants(isa_graph, chebi_id))
+
+
+def labels_from_graph(chebi_ids, classes, chebi_graph) -> np.ndarray:
+    cls_to_idx = {str(cls): idx for idx, cls in enumerate(classes)}
+    labels = np.zeros((len(chebi_ids), len(cls_to_idx)), dtype=bool)
+    for row, chebi_id in enumerate(chebi_ids):
+        chebi_id = str(chebi_id)
+        # a molecule is a member of its own class, which is not among its superclasses
+        columns = [
+            cls_to_idx[cls]
+            for cls in (chebi_id,) + get_superclasses(chebi_graph, chebi_id)
+            if cls in cls_to_idx
+        ]
+        labels[row, columns] = True
+    return labels

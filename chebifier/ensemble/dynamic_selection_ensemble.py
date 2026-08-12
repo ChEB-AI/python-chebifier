@@ -202,11 +202,12 @@ def output_profile_knn(
 
 
 class MetaChunk:
-    __slots__ = ("X", "covered", "profiles", "consensus", "alpha", "molecule")
+    __slots__ = ("X", "voting", "pool", "profiles", "consensus", "alpha", "molecule")
 
-    def __init__(self, X, covered, profiles, consensus, alpha, molecule):
+    def __init__(self, X, voting, pool, profiles, consensus, alpha, molecule):
         self.X = X
-        self.covered = covered
+        self.voting = voting
+        self.pool = pool
         self.profiles = profiles
         self.consensus = consensus
         self.alpha = alpha
@@ -269,23 +270,32 @@ def build_chunk(
         truth = labels[molecule, class_index]
         alpha = ((query_scores > POSITIVE_THRESHOLD) == truth[:, None]) & covered
 
-    positive = ((query_scores > POSITIVE_THRESHOLD) & covered).sum(axis=1)
-    n_covered = covered.sum(axis=1)
-    agreement = np.maximum(positive, n_covered - positive) / np.maximum(n_covered, 1)
+    # a model that covers the class but abstains on this molecule is not a dissenting vote, so it
+    # counts towards neither side nor the total
+    pool = covered & ~np.isnan(query_scores)
+    positive = ((query_scores > POSITIVE_THRESHOLD) & pool).sum(axis=1)
+    n_voting = pool.sum(axis=1)
+    agreement = np.where(
+        n_voting > 0,
+        np.maximum(positive, n_voting - positive) / np.maximum(n_voting, 1),
+        1.0,
+    )
 
-    unusable = (neighbours < 0).any(axis=1)
-    if unusable.any():
-        covered = covered.copy()
-        covered[unusable] = False
+    voting = pool.copy()
+    voting[(neighbours < 0).any(axis=1)] = False
 
-    return MetaChunk(X, covered, filled_query, agreement, alpha, molecule)
+    return MetaChunk(X, voting, pool, filled_query, agreement, alpha, molecule)
 
 
-def aggregate(delta, chunk, competence_threshold, vote):
-    selected = (delta > competence_threshold) & chunk.covered
+def aggregate(delta, chunk, competence_threshold, consensus_threshold, vote):
+    selected = (delta > competence_threshold) & chunk.voting
     empty = ~selected.any(axis=1)
-    selected[empty] = chunk.covered[empty]
+    selected[empty] = chunk.voting[empty]
     weight = delta * selected
+    # pairs the base learners already agree on are classified by the whole pool, without selection
+    # or competence weighting - the same hC shortcut that decides which pairs meta-training keeps
+    easy = chunk.consensus >= consensus_threshold
+    weight = np.where(easy[:, None], chunk.pool, weight)
     direction = np.where(chunk.profiles > POSITIVE_THRESHOLD, 1.0, -1.0)
     if vote == "confidence":
         direction = direction * 2.0 * np.abs(chunk.profiles - POSITIVE_THRESHOLD)
@@ -501,7 +511,7 @@ class DynamicSelectionEnsemble(VotingEnsemble):
             )
             if not keep.any():
                 continue
-            mask = chunk.covered & keep[:, None]
+            mask = chunk.voting & keep[:, None]
             if not mask.any():
                 continue
             yield chunk.X[mask], chunk.alpha[mask]
@@ -597,15 +607,19 @@ class DynamicSelectionEnsemble(VotingEnsemble):
                 coverage,
                 model_id=self.use_model_id,
             )
-            delta = np.zeros(chunk.covered.shape, dtype=np.float32)
-            if chunk.covered.any():
-                delta[chunk.covered] = classifier.predict_proba(chunk.X[chunk.covered])[
+            delta = np.zeros(chunk.voting.shape, dtype=np.float32)
+            if chunk.voting.any():
+                delta[chunk.voting] = classifier.predict_proba(chunk.X[chunk.voting])[
                     :, 1
                 ].astype(np.float32)
             first, last = pair_slice
             for vote in votes:
                 nets[vote][first:last] = aggregate(
-                    delta, chunk, self.competence_threshold, vote
+                    delta,
+                    chunk,
+                    self.competence_threshold,
+                    self.consensus_threshold,
+                    vote,
                 )
         return nets
 

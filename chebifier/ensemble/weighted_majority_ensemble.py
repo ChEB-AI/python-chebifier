@@ -161,9 +161,12 @@ class WMVwithF1Ensemble(WMVwithConfidenceEnsemble):
                     for model_name, model_predictions in validation_predictions.items()
                 }
             )
-            decisions = (aggregated["net_score"] > 0) & aggregated[
-                "has_valid_predictions"
-            ]
+            # the net score is a probability, so the operating point is the one the ensemble
+            # reports - scoring at > 0 asks "did any covering learner vote positive", which is
+            # almost independent of the weights the search is supposed to compare
+            decisions = (
+                aggregated["net_score"] > self.decision_threshold
+            ) & aggregated["has_valid_predictions"]
             fold_labels = validation_labels[test_idx]
             fold_f1 = self.classwise_f1(decisions, fold_labels)
             scores.append(fold_f1[fold_labels.sum(dim=0) > 0].mean().item())

@@ -13,12 +13,17 @@ from chebifier.check_env import check_package_installed
 from chebifier.hugging_face import download_model_files
 from chebifier.inconsistency_resolution import SMOOTHER_NAMES
 from chebifier.model_registry import ENSEMBLES, MODEL_TYPES
-from chebifier.predict import aggregate_predictions, base_learner_cache_path
+from chebifier.predict import (
+    aggregate_predictions,
+    base_learner_cache_path,
+    get_base_learner_predictions,
+)
 from chebifier.predict import predict as predict_molecules
 from chebifier.predict import resolve_and_decide
 from chebifier.utils import (
     get_default_configs,
     get_disjoint_files,
+    labels_from_graph,
     load_chebi_graph,
     process_config,
 )
@@ -117,7 +122,19 @@ def parse_ensemble_params(ensemble_param):
     return params
 
 
-def load_dataset(data_path, split: Literal["train", "validation", "test"]):
+def read_classes(classes_file):
+    if classes_file is None:
+        return None
+    with open(classes_file, "r", encoding="utf-8") as f:
+        return f.read().split()
+
+
+def load_dataset(
+    data_path,
+    split: Literal["train", "validation", "test"],
+    classes=None,
+    chebi_graph=None,
+):
     data_file = os.path.join(data_path, "data.pkl")
     splits_file = os.path.join(data_path, "splits.csv")
     if not os.path.exists(data_file) or not os.path.exists(splits_file):
@@ -133,10 +150,22 @@ def load_dataset(data_path, split: Literal["train", "validation", "test"]):
 
     mol_list = merged_df["mol"].tolist()
 
-    # extract labels from data_df: every column other than chebi_id/mol/id/split is a ChEBI class label
-    label_columns = [c for c in data_df.columns if c not in ("chebi_id", "mol")]
-    labels_df = merged_df[label_columns].astype(bool)
-    labels_df.columns = [str(c) for c in label_columns]
+    if classes is None:
+        # extract labels from data_df: every column other than chebi_id/mol/id/split is a ChEBI class label
+        label_columns = [c for c in data_df.columns if c not in ("chebi_id", "mol")]
+        labels_df = merged_df[label_columns].astype(bool)
+        labels_df.columns = [str(c) for c in label_columns]
+    else:
+        # the dataset has no columns for classes only some base learners predict, so the labels of
+        # the requested class set are read off the ChEBI hierarchy instead
+        labels_df = pd.DataFrame(
+            labels_from_graph(
+                merged_df["chebi_id"].tolist(),
+                classes,
+                load_chebi_graph() if chebi_graph is None else chebi_graph,
+            ),
+            columns=[str(cls) for cls in classes],
+        )
 
     print(
         f"Loaded {len(mol_list)} molecules and {len(labels_df.columns)} labels for split '{split}' from {data_path}."
@@ -202,6 +231,14 @@ def data_options(command):
                 required=True,
                 help="Data source: local dataset directory or Hugging Face repo id",
             ),
+            click.option(
+                "--classes",
+                type=click.Path(exists=True),
+                default=None,
+                help="File listing the classes the ensemble runs on, one per line (see the "
+                "'collect-classes' command). Labels for these classes are read off the ChEBI "
+                "hierarchy. Default: the label columns of the dataset.",
+            ),
         ]
     ):
         command = option(command)
@@ -231,6 +268,7 @@ def build(
     ensemble_dir,
     prediction_cache_dir,
     data_path,
+    classes,
     ensemble_param,
 ):
     """Build (calibrate) an ensemble on the ChEBI validation set."""
@@ -242,7 +280,9 @@ def build(
     )
 
     # TODO: Hugging Face support
-    validation_data, validation_labels = load_dataset(data_path, split="validation")
+    validation_data, validation_labels = load_dataset(
+        data_path, split="validation", classes=read_classes(classes)
+    )
 
     builder = EnsembleBuilder(
         base_learners,
@@ -321,6 +361,7 @@ def evaluate(
     ensemble_dir,
     prediction_cache_dir,
     data_path,
+    classes,
     resolve_inconsistencies,
     inconsistency_resolution,
     ir_param,
@@ -365,13 +406,18 @@ def evaluate(
         ensemble_config, prediction_cache_dir=prediction_cache_dir, split=split
     )
 
-    # TODO: Hugging Face support
-    eval_data, eval_labels = load_dataset(data_path, split=split)
-
     chebi_graph, disjoint_files = None, None
     if any(variant != "none" for variant in variants):
         chebi_graph = load_chebi_graph()
         disjoint_files = get_disjoint_files()
+
+    # TODO: Hugging Face support
+    eval_data, eval_labels = load_dataset(
+        data_path,
+        split=split,
+        classes=read_classes(classes),
+        chebi_graph=chebi_graph,
+    )
 
     ir_params = parse_ir_params(ir_param)
     for (type_, dir_), todo in jobs.items():
@@ -410,6 +456,60 @@ def evaluate(
                 f"({predictions['class_decisions'].shape[0]} molecules, {len(predictions['predicted_classes'])} classes, "
                 f"{int(predictions['complete_failure'].sum())} molecules without any valid prediction) to {target}."
             )
+
+
+@cli.command("collect-classes")
+@base_learner_options
+@click.option(
+    "--data-path",
+    type=str,
+    required=True,
+    help="Data source: local dataset directory or Hugging Face repo id",
+)
+@click.option(
+    "--split",
+    type=click.Choice(["train", "validation", "test"]),
+    multiple=True,
+    default=("validation", "test"),
+    help="Dataset splits the base learners are run on (repeatable, default: validation and test)",
+)
+@click.option(
+    "--output",
+    "-o",
+    type=click.Path(),
+    required=True,
+    help="File the class list is written to, one class per line",
+)
+def collect_classes(ensemble_config, prediction_cache_dir, data_path, split, output):
+    """Write the classes at least one base learner predicts to a file.
+
+    Symbolic classifiers report a class only when they actually assign it, so the class set is
+    read off the predictions rather than declared by the models. Pass the resulting file to
+    'build' and 'evaluate' as --classes to run the ensemble on all of them.
+    """
+    classes = set()
+    for split_name in split:
+        base_learners = build_base_learners(
+            ensemble_config,
+            prediction_cache_dir=prediction_cache_dir,
+            split=split_name,
+        )
+        molecules, _ = load_dataset(data_path, split=split_name)
+        predictions = get_base_learner_predictions(
+            base_learners,
+            molecules,
+            prediction_cache_dir=prediction_cache_dir,
+            split=split_name,
+        )
+        for model_name, (model_classes, _) in predictions.items():
+            print(f"{model_name} ({split_name}): {len(model_classes)} classes")
+            classes.update(str(cls) for cls in model_classes)
+
+    classes = sorted(classes)
+    os.makedirs(os.path.dirname(os.path.abspath(output)), exist_ok=True)
+    with open(output, "w", encoding="utf-8") as f:
+        f.writelines(f"{cls}\n" for cls in classes)
+    print(f"Saved {len(classes)} classes to {output}.")
 
 
 @cli.command()
