@@ -1,16 +1,11 @@
 import heapq
+import math
 import os
 
 import numpy as np
+from scipy.sparse import csr_matrix
 
-LABEL_FILE = os.path.join(
-    "data", "chebi_v252", "ensemble_classes_dl_symbolic_3star.txt"
-)
-GAT_PREDS = os.path.join(
-    "ensemble_08-26",
-    "base_learner_cache-3star",
-    "gat_chebi25-3star_v252_test_predictions.npz",
-)
+ACTIVE_CUT = -8.0
 
 
 class HexGraph:
@@ -20,170 +15,16 @@ class HexGraph:
         self.succ = succ
         self.strict = succ & ~np.eye(self.n, dtype=bool)
         self.excl = excl
-        f = self.strict.astype(np.float32)
-        hier_sparse = self.strict & ~((f @ f) > 0)
-        a = succ.astype(np.float32)
-        excl_sparse = excl & ((a @ excl.astype(np.float32) @ a.T) < 2)
-        self.hier_sparse = hier_sparse
-        self.excl_sparse = excl_sparse
-        adj_bool = hier_sparse | hier_sparse.T | excl_sparse
-        self.adj_sparse = [
-            set(np.nonzero(adj_bool[i])[0].tolist()) for i in range(self.n)
-        ]
-
-    def order_nodes(self, nodes):
-        nodes = sorted(nodes)
-        s = set(nodes)
-        sup = {c: set(np.nonzero(self.strict[c])[0].tolist()) & s for c in nodes}
-        return sorted(nodes, key=lambda c: len(sup[c])), sup
-
-    def local_constraints(self, nodes):
-        order, sup = self.order_nodes(nodes)
-        pos = {c: k for k, c in enumerate(order)}
-        exc = {c: set(np.nonzero(self.excl[c])[0].tolist()) & set(nodes) for c in order}
-        sup_l = [[pos[x] for x in sup[c] if pos[x] < k] for k, c in enumerate(order)]
-        exc_l = [[pos[x] for x in exc[c] if pos[x] < k] for k, c in enumerate(order)]
-        return order, sup_l, exc_l
-
-    def enumerate_states(self, nodes, cap=10**6):
-        order, sup_l, exc_l = self.local_constraints(nodes)
-        out, cur, over = [], [], [False]
-
-        def rec(k):
-            if over[0]:
-                return
-            if k == len(order):
-                if len(out) >= cap:
-                    over[0] = True
-                    return
-                out.append(cur.copy())
-                return
-            for bit in (0, 1):
-                if bit == 1:
-                    if any(cur[j] == 0 for j in sup_l[k]):
-                        continue
-                    if any(cur[j] == 1 for j in exc_l[k]):
-                        continue
-                cur.append(bit)
-                rec(k + 1)
-                cur.pop()
-                if over[0]:
-                    return
-
-        rec(0)
-        if over[0]:
-            return order, None
-        return order, np.array(out, dtype=bool).reshape(len(out), len(order))
-
-    def count_states(self, nodes, cap=10**6):
-        order, sup_l, exc_l = self.local_constraints(nodes)
-        cur, total = [], [0]
-
-        def rec(k):
-            if total[0] > cap:
-                return
-            if k == len(order):
-                total[0] += 1
-                return
-            for bit in (0, 1):
-                if bit == 1:
-                    if any(cur[j] == 0 for j in sup_l[k]):
-                        continue
-                    if any(cur[j] == 1 for j in exc_l[k]):
-                        continue
-                cur.append(bit)
-                rec(k + 1)
-                cur.pop()
-                if total[0] > cap:
-                    return
-
-        rec(0)
-        return total[0] if total[0] <= cap else -1
-
-
-def build_graph(restrict_to_gat=False, labels=None):
-    from chebifier.inconsistency_resolution import (
-        PredictionSmoother,
-        densified_exclusion_matrix,
-    )
-    from chebifier.utils import get_disjoint_files, load_chebi_graph
-
-    if labels is None:
-        with open(LABEL_FILE) as fh:
-            labels = [line.strip() for line in fh if line.strip()]
-        if restrict_to_gat:
-            cl = set(np.load(GAT_PREDS, allow_pickle=True)["classes"].tolist())
-            labels = [x for x in labels if x in cl]
-    sm = PredictionSmoother(load_chebi_graph(), labels, get_disjoint_files())
-    succ = sm.label_successors[0].numpy()
-    excl = densified_exclusion_matrix(
-        labels, sm.label_successors, sm.disjoint_groups
-    ).numpy()
-    return HexGraph(labels, succ, excl)
-
-
-def triangulate(adj):
-    n = len(adj)
-    work = [set(s) for s in adj]
-    alive = np.ones(n, dtype=bool)
-
-    def fill_of(v):
-        nb = list(work[v])
-        return sum(
-            1
-            for i in range(len(nb))
-            for j in range(i + 1, len(nb))
-            if nb[j] not in work[nb[i]]
-        )
-
-    heap = [(fill_of(v), len(work[v]), v) for v in range(n)]
-    heapq.heapify(heap)
-    cliques = []
-    while heap:
-        fill, dg, v = heapq.heappop(heap)
-        if not alive[v]:
-            continue
-        if (fill_of(v), len(work[v])) != (fill, dg):
-            heapq.heappush(heap, (fill_of(v), len(work[v]), v))
-            continue
-        nb = list(work[v])
-        cliques.append(frozenset(nb + [v]))
-        for i in range(len(nb)):
-            for j in range(i + 1, len(nb)):
-                work[nb[i]].add(nb[j])
-                work[nb[j]].add(nb[i])
-        for u in nb:
-            work[u].discard(v)
-        alive[v] = False
-        for u in nb:
-            heapq.heappush(heap, (fill_of(u), len(work[u]), u))
-    return list(dict.fromkeys(c for c in cliques if not any(c < d for d in cliques)))
-
-
-def max_weight_tree(cliques):
-    m = len(cliques)
-    masks = []
-    for c in cliques:
-        b = 0
-        for v in c:
-            b |= 1 << v
-        masks.append(b)
-    in_tree = np.zeros(m, dtype=bool)
-    in_tree[0] = True
-    best_w = np.array([(masks[0] & masks[j]).bit_count() for j in range(m)])
-    best_i = np.zeros(m, dtype=np.int64)
-    edges = []
-    for _ in range(m - 1):
-        j = int(np.where(in_tree, -1, best_w).argmax())
-        edges.append((int(best_i[j]), j))
-        in_tree[j] = True
-        mj = masks[j]
-        for t in np.nonzero(~in_tree)[0]:
-            w = (mj & masks[t]).bit_count()
-            if w > best_w[t]:
-                best_w[t] = w
-                best_i[t] = j
-    return edges
+        self.strict_sp = csr_matrix(self.strict.astype(np.float64))
+        two_hop = (self.strict_sp @ self.strict_sp).toarray() > 0
+        red = self.strict & ~two_hop
+        self.parent = np.where(red.any(1), red.argmax(1), -1)
+        height = np.zeros(self.n, dtype=np.int64)
+        for v in np.argsort(-self.strict.sum(1)):
+            p = self.parent[v]
+            if p >= 0:
+                height[p] = max(height[p], height[v] + 1)
+        self.forest_order = np.argsort(height, kind="stable")
 
 
 def graph_from_edges(n, hierarchy, exclusion, labels=None):
@@ -238,149 +79,47 @@ def logsumexp(a):
     return m + np.log(np.exp(a - m).sum())
 
 
-def exact_marginals_jtree(g, f, cap=10**6):
-    cliques = triangulate(g.adj_sparse)
-    edges = max_weight_tree(cliques)
-    states, orders = [], []
-    for c in cliques:
-        o, s = g.enumerate_states(c, cap=cap)
-        if s is None:
-            raise RuntimeError(f"clique of size {len(c)} exceeds cap")
-        orders.append(o)
-        states.append(s)
-    pot = []
-    assigned_unary = set()
-    for k, c in enumerate(cliques):
-        o = np.array(orders[k])
-        contrib = np.zeros(states[k].shape[0])
-        for pos, v in enumerate(o):
-            if v not in assigned_unary:
-                assigned_unary.add(v)
-                contrib = contrib + states[k][:, pos] * f[v]
-        pot.append(contrib)
-    assert assigned_unary == set(range(g.n))
-
-    adjm = {k: [] for k in range(len(cliques))}
-    for i, j in edges:
-        adjm[i].append(j)
-        adjm[j].append(i)
-    root = 0
-    order_dfs, parent, seen = [], {root: None}, {root}
-    stack = [root]
-    while stack:
-        v = stack.pop()
-        order_dfs.append(v)
-        for u in adjm[v]:
-            if u not in seen:
-                seen.add(u)
-                parent[u] = v
-                stack.append(u)
-
-    def sep_key(a, b):
-        sep = sorted(set(cliques[a]) & set(cliques[b]))
-        idx = [orders[a].index(v) for v in sep]
-        return sep, idx
-
-    msg = {}
-    for v in reversed(order_dfs):
-        p = parent[v]
-        if p is None:
-            continue
-        acc = pot[v].copy()
-        for u in adjm[v]:
-            if u == p:
-                continue
-            sep, idx = sep_key(v, u)
-            m_in = msg[(u, v)]
-            keys = (
-                _pack(states[v][:, idx])
-                if idx
-                else np.zeros(states[v].shape[0], dtype=np.int64)
-            )
-            acc = acc + np.array([m_in.get(int(kk), -np.inf) for kk in keys])
-        sep, idx = sep_key(v, p)
-        keys = (
-            _pack(states[v][:, idx])
-            if idx
-            else np.zeros(states[v].shape[0], dtype=np.int64)
-        )
-        out = {}
-        for kk, val in zip(keys, acc):
-            kk = int(kk)
-            out[kk] = np.logaddexp(out.get(kk, -np.inf), val)
-        msg[(v, p)] = out
-    for v in order_dfs:
-        for u in adjm[v]:
-            if u == parent[v]:
-                continue
-            acc = pot[v].copy()
-            for w in adjm[v]:
-                if w == u:
-                    continue
-                sep, idx = sep_key(v, w)
-                m_in = msg[(w, v)]
-                keys = (
-                    _pack(states[v][:, idx])
-                    if idx
-                    else np.zeros(states[v].shape[0], dtype=np.int64)
-                )
-                acc = acc + np.array([m_in.get(int(kk), -np.inf) for kk in keys])
-            sep, idx = sep_key(v, u)
-            keys = (
-                _pack(states[v][:, idx])
-                if idx
-                else np.zeros(states[v].shape[0], dtype=np.int64)
-            )
-            out = {}
-            for kk, val in zip(keys, acc):
-                kk = int(kk)
-                out[kk] = np.logaddexp(out.get(kk, -np.inf), val)
-            msg[(v, u)] = out
-
-    marg = np.full(g.n, np.nan)
-    for k in range(len(cliques)):
-        belief = pot[k].copy()
-        for u in adjm[k]:
-            sep, idx = sep_key(k, u)
-            m_in = msg[(u, k)]
-            keys = (
-                _pack(states[k][:, idx])
-                if idx
-                else np.zeros(states[k].shape[0], dtype=np.int64)
-            )
-            belief = belief + np.array([m_in.get(int(kk), -np.inf) for kk in keys])
-        z = logsumexp(belief)
-        for pos, v in enumerate(orders[k]):
-            sel = states[k][:, pos]
-            val = np.exp(logsumexp(belief[sel]) - z) if sel.any() else 0.0
-            if not np.isnan(marg[v]):
-                assert abs(marg[v] - val) < 1e-8, (v, marg[v], val)
-            marg[v] = val
-    return marg
-
-
-def _pack(bits):
-    if bits.shape[1] == 0:
-        return np.zeros(bits.shape[0], dtype=np.int64)
-    w = 1 << np.arange(bits.shape[1], dtype=np.int64)
-    return (bits.astype(np.int64) * w).sum(axis=1)
-
-
-def propagate(g, on, off):
-    for _ in range(64):
-        new_on = on.copy()
-        new_off = off.copy()
-        if on.any():
-            new_on = new_on | g.succ[on].any(0)
-            new_off = new_off | g.excl[on].any(0)
-        if off.any():
-            new_off = new_off | g.succ[:, off].any(1)
-        if (new_on & new_off).any():
-            return None, None, False
-        if np.array_equal(new_on, on) and np.array_equal(new_off, off):
-            return on, off, True
-        on, off = new_on, new_off
+def propagate(g, on, off, seed_on=None, seed_off=None):
+    on = on.copy()
+    off = off.copy()
+    if seed_on is None and seed_off is None:
+        q_on = np.nonzero(on)[0].tolist()
+        q_off = np.nonzero(off)[0].tolist()
+    else:
+        q_on = [seed_on] if seed_on is not None else []
+        q_off = [seed_off] if seed_off is not None else []
+    while q_on or q_off:
+        if q_on:
+            idx = np.asarray(q_on, dtype=np.int64)
+            q_on = []
+            anc = g.succ[idx].any(0)
+            on |= anc
+            if (on & off).any():
+                return None, None, False
+            ex = g.excl[np.nonzero(anc)[0]].any(0)
+            new_off = ex & ~off
+            if new_off.any():
+                off |= new_off
+                if (on & off).any():
+                    return None, None, False
+                q_off.extend(np.nonzero(new_off)[0].tolist())
+        else:
+            idx = np.asarray(q_off, dtype=np.int64)
+            q_off = []
+            off |= g.succ[:, idx].any(1)
+            if (on & off).any():
+                return None, None, False
     return on, off, True
+
+
+def _lse0(a):
+    mx = a.max(axis=0)
+    ok = np.isfinite(mx)
+    out = np.full(a.shape[1], -np.inf)
+    if ok.any():
+        sub = a[:, ok] - mx[ok]
+        out[ok] = mx[ok] + np.log(np.exp(sub).sum(axis=0))
+    return out
 
 
 def _slack_log(lo, hi):
@@ -389,35 +128,135 @@ def _slack_log(lo, hi):
     return hi + np.log1p(-np.exp(lo - hi))
 
 
-def bounded_marginals(g, f, budget=2000, return_items=False):
+def bounded_marginals(
+    g,
+    f,
+    budget=2000,
+    return_items=False,
+    threshold=None,
+    check_every=25,
+    warmup=50,
+):
     f = np.asarray(f, dtype=float)
     softplus = np.logaddexp(0.0, f)
     log_sig = -np.logaddexp(0.0, -f)
     log_sig_neg = -np.logaddexp(0.0, f)
-    strict_f = g.strict.astype(np.float64)
-    anc_all = strict_f @ f
+    anc_all = g.strict_sp @ f
+
+    active = f > ACTIVE_CUT
+    for v in g.forest_order:
+        p = g.parent[v]
+        if p >= 0 and active[v]:
+            active[p] = True
+    tree_order = [int(v) for v in g.forest_order if active[v]]
+    tree_f = [float(f[v]) for v in tree_order]
+    tree_parent = [
+        int(g.parent[v]) if g.parent[v] >= 0 and active[g.parent[v]] else -1
+        for v in tree_order
+    ]
+    softplus_flat = np.where(active, 0.0, softplus)
 
     on0 = np.zeros(g.n, dtype=bool)
     off0 = np.zeros(g.n, dtype=bool)
     on0, off0, ok = propagate(g, on0, off0)
     assert ok
 
+    def forest_slack(free):
+        acc = {}
+        total = 0.0
+        for v, fv, p in zip(tree_order, tree_f, tree_parent):
+            if not free[v]:
+                continue
+            a = fv + acc.pop(v, 0.0)
+            s = a if a > 30.0 else math.log1p(math.exp(a))
+            if p >= 0 and free[p]:
+                acc[p] = acc.get(p, 0.0) + s
+            else:
+                total += s
+        return total
+
     def bounds(on, off):
         free = ~on & ~off
         lo = f[on].sum()
-        hi = lo + softplus[free].sum()
-        return lo, hi, free
+        hi_flat = lo + softplus[free].sum()
+        hi = lo + softplus_flat[free].sum() + forest_slack(free)
+        return lo, hi, hi_flat, free
+
+    def aggregate(items, chunk=512):
+        NEG = -np.inf
+        Nlo = np.full(g.n, NEG)
+        Nhi = np.full(g.n, NEG)
+        Mlo = np.full(g.n, NEG)
+        Mhi = np.full(g.n, NEG)
+        Zlo, Zhi = NEG, NEG
+        for start in range(0, len(items), chunk):
+            block = items[start : start + chunk]
+            ON = np.stack([it[0] for it in block])
+            OFF = np.stack([it[1] for it in block])
+            FREE = ~ON & ~OFF
+            LO = np.array([it[2] for it in block])
+            HI = np.array([it[3] for it in block])
+            ANC = anc_all[None, :] - (g.strict_sp @ (ON * f).T).T
+            lo_c = LO[:, None]
+            hi_c = HI[:, None]
+            flat_c = np.array([it[4] for it in block])[:, None]
+            Zlo = np.logaddexp(Zlo, logsumexp(LO))
+            Zhi = np.logaddexp(Zhi, logsumexp(HI))
+            Nlo = np.logaddexp(
+                Nlo,
+                _lse0(np.where(ON, lo_c, np.where(FREE, lo_c + f[None, :] + ANC, NEG))),
+            )
+            Nhi = np.logaddexp(
+                Nhi,
+                _lse0(
+                    np.where(
+                        ON,
+                        hi_c,
+                        np.where(
+                            FREE, np.minimum(hi_c, flat_c + log_sig[None, :]), NEG
+                        ),
+                    )
+                ),
+            )
+            Mlo = np.logaddexp(Mlo, _lse0(np.where(ON, NEG, lo_c)))
+            Mhi = np.logaddexp(
+                Mhi,
+                _lse0(
+                    np.where(
+                        OFF,
+                        hi_c,
+                        np.where(
+                            FREE, np.minimum(hi_c, flat_c + log_sig_neg[None, :]), NEG
+                        ),
+                    )
+                ),
+            )
+        return (
+            np.exp(Nlo - np.logaddexp(Nlo, Mhi)),
+            np.exp(Nhi - np.logaddexp(Nhi, Mlo)),
+            Zlo,
+            Zhi,
+        )
 
     counter = 0
-    lo0, hi0, _ = bounds(on0, off0)
-    heap = [(-_slack_log(lo0, hi0), counter, on0, off0)]
+    lo0, hi0, flat0, _ = bounds(on0, off0)
+    heap = [(-_slack_log(lo0, hi0), counter, on0, off0, lo0, hi0, flat0)]
     closed = []
     expansions = 0
     while heap and expansions < budget:
-        negslack, _, on, off = heapq.heappop(heap)
-        lo, hi, free = bounds(on, off)
+        if (
+            threshold is not None
+            and expansions >= warmup
+            and (expansions - warmup) % check_every == 0
+        ):
+            lb, ub = aggregate([it[2:] for it in heap] + closed)[:2]
+            if ((ub <= threshold) | (lb > threshold)).all():
+                break
+
+        negslack, _, on, off, lo, hi, flat = heapq.heappop(heap)
+        free = ~on & ~off
         if not free.any() or not np.isfinite(negslack):
-            closed.append((on, off))
+            closed.append((on, off, lo, hi, flat))
             continue
         k = int(np.argmax(np.where(free, softplus, -np.inf)))
         expansions += 1
@@ -428,37 +267,17 @@ def bounded_marginals(g, f, budget=2000, return_items=False):
                 n_on[k] = True
             else:
                 n_off[k] = True
-            a, b, good = propagate(g, n_on, n_off)
+            a, b, good = propagate(
+                g, n_on, n_off, seed_on=k if bit else None, seed_off=None if bit else k
+            )
             if not good:
                 continue
-            l2, h2, _ = bounds(a, b)
+            l2, h2, flat2, _ = bounds(a, b)
             counter += 1
-            heapq.heappush(heap, (-_slack_log(l2, h2), counter, a, b))
-    items = [(on, off) for (_, _, on, off) in heap] + closed
+            heapq.heappush(heap, (-_slack_log(l2, h2), counter, a, b, l2, h2, flat2))
 
-    NEG = -np.inf
-    Nlo = np.full(g.n, NEG)
-    Nhi = np.full(g.n, NEG)
-    Mlo = np.full(g.n, NEG)
-    Mhi = np.full(g.n, NEG)
-    Zlo, Zhi = NEG, NEG
-    for on, off in items:
-        lo, hi, free = bounds(on, off)
-        Zlo = np.logaddexp(Zlo, lo)
-        Zhi = np.logaddexp(Zhi, hi)
-        Nlo[on] = np.logaddexp(Nlo[on], lo)
-        Nhi[on] = np.logaddexp(Nhi[on], hi)
-        Mlo[off] = np.logaddexp(Mlo[off], lo)
-        Mhi[off] = np.logaddexp(Mhi[off], hi)
-        if free.any():
-            anc = anc_all - (strict_f[:, on] @ f[on] if on.any() else 0.0)
-            Nlo[free] = np.logaddexp(Nlo[free], lo + f[free] + anc[free])
-            Nhi[free] = np.logaddexp(Nhi[free], hi + log_sig[free])
-            Mlo[free] = np.logaddexp(Mlo[free], lo)
-            Mhi[free] = np.logaddexp(Mhi[free], hi + log_sig_neg[free])
-
-    lb = np.exp(Nlo - np.logaddexp(Nlo, Mhi))
-    ub = np.exp(Nhi - np.logaddexp(Nhi, Mlo))
+    items = [it[2:] for it in heap] + closed
+    lb, ub, Zlo, Zhi = aggregate(items)
     out = {
         "lb": lb,
         "ub": ub,
@@ -468,6 +287,160 @@ def bounded_marginals(g, f, budget=2000, return_items=False):
         "expansions": expansions,
         "exhausted": len(heap) == 0,
     }
+    if threshold is not None:
+        out["undecided"] = np.nonzero(~((ub <= threshold) | (lb > threshold)))[0]
     if return_items:
         out["items"] = items
     return out
+
+
+_WORKER_GRAPH = None
+
+
+def _init_worker(g):
+    global _WORKER_GRAPH
+    _WORKER_GRAPH = g
+
+
+def _run_one(args):
+    f, budget, threshold, check_every = args
+    b = bounded_marginals(
+        _WORKER_GRAPH,
+        f,
+        budget=budget,
+        threshold=threshold,
+        check_every=check_every,
+    )
+    return (
+        b["lb"].astype(np.float32),
+        b["ub"].astype(np.float32),
+        b["expansions"],
+        b["exhausted"],
+    )
+
+
+def _single_thread_blas():
+    for var in ("OMP_NUM_THREADS", "MKL_NUM_THREADS", "OPENBLAS_NUM_THREADS"):
+        os.environ[var] = "1"
+
+
+def bounded_marginals_many(
+    g,
+    F,
+    budget=400,
+    threshold=None,
+    check_every=200,
+    processes=None,
+    chunksize=8,
+    pool=None,
+):
+    import multiprocessing as mp
+
+    if processes is None:
+        processes = min(8, mp.cpu_count())
+    _single_thread_blas()
+    tasks = [(F[i], budget, threshold, check_every) for i in range(len(F))]
+    if pool is not None:
+        out = pool.map(_run_one, tasks, chunksize=chunksize)
+    elif processes == 1:
+        _init_worker(g)
+        out = [_run_one(t) for t in tasks]
+    else:
+        with mp.Pool(processes, initializer=_init_worker, initargs=(g,)) as own_pool:
+            out = own_pool.map(_run_one, tasks, chunksize=chunksize)
+    return {
+        "lb": np.stack([o[0] for o in out]),
+        "ub": np.stack([o[1] for o in out]),
+        "expansions": np.array([o[2] for o in out]),
+        "exhausted": np.array([o[3] for o in out]),
+    }
+
+
+class BoundedHexSmoother:
+    def __init__(
+        self,
+        chebi_graph,
+        label_names=None,
+        disjoint_files=None,
+        verbose=False,
+        budget=2000,
+        threshold=0.5,
+        processes=None,
+    ):
+        from chebifier.inconsistency_resolution import PredictionSmoother
+
+        self.verbose = verbose
+        self.budget = budget
+        self.threshold = threshold
+        self.processes = processes
+        self.n_uncertified = 0
+        self._pool = None
+        self.graph = None
+        self._base = PredictionSmoother(chebi_graph, None, disjoint_files, verbose)
+        self.set_label_names(label_names)
+
+    def set_label_names(self, label_names):
+        from chebifier.inconsistency_resolution import densified_exclusion_matrix
+
+        self.label_names = label_names
+        self.close()
+        self.graph = None
+        if label_names is None:
+            return
+        base = self._base
+        base.set_label_names(label_names)
+        self.graph = HexGraph(
+            label_names,
+            base.label_successors[0].numpy(),
+            densified_exclusion_matrix(
+                label_names, base.label_successors, base.disjoint_groups
+            ).numpy(),
+        )
+
+    def _worker_pool(self):
+        import multiprocessing as mp
+
+        if self.processes == 1:
+            return None
+        if self._pool is None:
+            _single_thread_blas()
+            self._pool = mp.Pool(
+                self.processes or min(8, mp.cpu_count()),
+                initializer=_init_worker,
+                initargs=(self.graph,),
+            )
+        return self._pool
+
+    def close(self):
+        if getattr(self, "_pool", None) is not None:
+            self._pool.terminate()
+            self._pool = None
+
+    def __del__(self):
+        try:
+            self.close()
+        except Exception:
+            pass
+
+    def __call__(self, preds, valid_mask=None):
+        import torch
+
+        from chebifier.inconsistency_resolution import seed_uncovered
+
+        preds = seed_uncovered(preds, valid_mask)
+        p = np.clip(preds.detach().cpu().numpy().astype(np.float64), 1e-6, 1 - 1e-6)
+        f = np.log(p) - np.log1p(-p)
+        res = bounded_marginals_many(
+            self.graph,
+            f,
+            budget=self.budget,
+            threshold=self.threshold,
+            processes=self.processes,
+            pool=self._worker_pool(),
+        )
+        lb, ub = res["lb"], res["ub"]
+        certified = (lb > self.threshold) | (ub <= self.threshold)
+        self.n_uncertified += int((~certified).sum())
+        if self.verbose:
+            print(f"BoundedHex: {int((~certified).sum())} uncertified label decisions")
+        return torch.tensor(lb, dtype=preds.dtype, device=preds.device)

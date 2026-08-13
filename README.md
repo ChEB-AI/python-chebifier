@@ -258,9 +258,11 @@ to repeat step 2.
 
 #### Alternative methods
 
-The method above is `--inconsistency-resolution score-based` (`-ir`, the default). Two alternatives
-from the literature are available at the same point in the pipeline; all of them consume the net
-score and return a net score, so the decision threshold applies unchanged.
+The method above is `--inconsistency-resolution score-based` (`-ir`, the default). Two alternative
+families from the literature are available at the same point in the pipeline; all of them consume a
+net score and return a net score, so the decision threshold applies unchanged. Scores are
+probabilities in $[0, 1]$, with $0.5$ meaning "undecided"; the decision itself is made at the
+operating point the ensemble reports as `decision_threshold`, which is not always $0.5$.
 
 - `ilr-godel`, `ilr-lukasiewicz` — **Iterative Local Refinement**
   ([Daniele et al. 2023](https://doi.org/10.1007/s10994-023-06310-3)). Subsumption becomes the
@@ -271,25 +273,48 @@ score and return a net score, so the decision threshold applies unchanged.
   Gödel is winner-take-all (it raises the parent to the child, and zeroes the weaker side of a
   disjoint pair), whereas Łukasiewicz shares the correction — a disjointness violation with scores
   $0.8$ and $0.7$ becomes $0.55$ and $0.45$ rather than $0.8$ and $0$.
-- `hex` — **HEX graphs**
+- `hex`, `hex-legacy` — **HEX graphs**
   ([Deng et al. 2014](https://doi.org/10.1007/978-3-319-10590-1_4)). A CRF over binary label
   vectors in which hierarchy edges forbid $(B, A) = (0, 1)$ and exclusion edges forbid
   $(1, 1)$. Illegal states have probability zero, so the marginals satisfy
   $P(A) \le P(B)$ for $A \subseteq B$ and $P(A) + P(B) \le 1$ for disjoint $A, B$ by construction.
+  The two variants differ only in how they cope with the intractability described below.
 
-Both convert the net score to a probability with $p = \sigma(k \cdot \mathrm{score})$ and back with
-$\mathrm{logit}(p) / k$, so the decision boundary stays at $0$. `k` (and `delta` for `hex`) can be
-passed with `-irp k=2.0` and tuned with `scripts/calibrate_resolution.py`. Note that `k` does not
-affect `ilr-godel`'s decisions: every Gödel operation is order-preserving, so a monotone
-reparametrisation cannot change the sign of any score.
+`ilr-godel` and `ilr-lukasiewicz` are tuned with `alpha`, `max_iter` and `tol`, passed as
+`-irp alpha=0.5`. `scripts/calibrate_resolution.py` grid-searches resolution parameters against a
+validation split; the grid per method is defined in its `GRIDS` dict. Note that a monotone
+reparametrisation of the scores cannot change `ilr-godel`'s decisions: every Gödel operation is
+order-preserving, so it cannot move a score across the boundary.
+
+#### Why HEX needs an approximation
 
 Applied as published, HEX inference is intractable here. Its cost is bounded by
 $O(\min(|V|2^w, |V|2^{\Omega}))$, and on a 2117-class ChEBI label set the maximum overlap is
 $\Omega = 2115$ and the junction tree width is $\le 62$, with over 5 million legal states in the
 largest cliques — the paper's efficiency argument assumes labels are mostly mutually exclusive,
-whereas ChEBI labels overwhelmingly overlap (~25 classes hold per molecule). This implementation
-therefore *clamps*: classes whose score is further than `delta` from the boundary, and which are
-not involved in a violation, are fixed to their sign; that assignment is propagated to a fixpoint;
-and exact inference runs only on the connected components of what remains (typically fewer than 30
-classes). Components above `max_component_size` fall back to `score-based`, counted in
-`n_fallbacks`. This is a deviation from the published method and should be reported as such.
+whereas ChEBI labels overwhelmingly overlap (~25 classes hold per molecule). Exact junction-tree
+inference is therefore not an option at this scale, and both variants deviate from the published
+method; this should be reported as such.
+
+`hex` (`chebifier/hex_bounded.py`) replaces exact inference with a **branch-and-bound over partial
+assignments**. Each search node fixes some labels on and some off, leaving the rest free, and
+yields an interval $[\mathrm{lb}, \mathrm{ub}]$ that provably brackets every label's true marginal.
+Fixing a label propagates through hierarchy and exclusion edges to a fixpoint, so infeasible
+branches are pruned immediately. The node with the largest slack is expanded first, for at most
+`budget` expansions (default 2000). If the search exhausts the frontier within that budget the
+intervals collapse and the result is exact; otherwise they stay open and the bounds remain valid
+but loose. Search also stops early once every label's interval lies entirely on one side of the
+decision threshold, since further refinement cannot change any decision.
+
+The smoother returns the **lower** bound. A label whose interval still straddles the threshold is
+therefore decided negative — ties go against predicting the class — and the number of such
+labels is accumulated in `n_uncertified`. Pass `budget` and `processes` (molecules are bounded in
+parallel across a worker pool) with `-irp budget=4000`. `threshold` defaults to the ensemble's
+operating point and only needs to be set explicitly to override it.
+
+`hex-legacy` (`chebifier/hex_graph.py`) instead *clamps*: classes whose score is further than
+`delta` from the boundary, and which are not involved in a violation, are fixed to their sign; that
+assignment is propagated to a fixpoint; and exact inference runs only on the connected components
+of what remains (typically fewer than 30 classes). Components above `max_component_size` fall back
+to `score-based`, counted in `n_fallbacks`. Unlike `hex`, it gives no guarantee about how far the
+result is from the true marginals.

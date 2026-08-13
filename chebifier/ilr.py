@@ -3,6 +3,7 @@ import torch
 from chebifier.inconsistency_resolution import (
     PredictionSmoother,
     densified_exclusion_pairs,
+    seed_uncovered,
 )
 
 
@@ -75,13 +76,10 @@ class ILRSmoother(PredictionSmoother):
         if preds.shape[1] == 0:
             return preds
         self._valid = valid_mask
-        p = preds.clamp(0.0, 1.0)
-        original = p
+        p = seed_uncovered(preds, valid_mask).clamp(0.0, 1.0)
         self.last_iterations = 0
         for _ in range(self.max_iter):
             p_new = self._step(p)
-            if valid_mask is not None:
-                p_new = torch.where(valid_mask, p_new, original)
             self.last_iterations += 1
             if torch.max((p_new - p).abs()) < self.tol:
                 p = p_new

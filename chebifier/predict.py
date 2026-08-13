@@ -9,13 +9,17 @@ import torch
 from rdkit import Chem
 
 from chebifier.ensemble.base_ensemble import BaseEnsemble
-from chebifier.inconsistency_resolution import get_smoother_class
+from chebifier.inconsistency_resolution import NEUTRAL, get_smoother_class
 from chebifier.prediction_models.base_predictor import BasePredictor
 from chebifier.utils import get_disjoint_files, load_chebi_graph
 
 
 def apply_inconsistency_resolution(
-    smoother, class_names, aggregated_predictions, batch_size: int = 16
+    smoother,
+    class_names,
+    aggregated_predictions,
+    batch_size: int = 16,
+    decision_threshold: float = NEUTRAL,
 ):
     """Resolve inconsistencies in batches - the smoother materialises a
     (batch_size, n_classes, n_classes) tensor, which does not fit into memory for a whole dataset split.
@@ -32,6 +36,10 @@ def apply_inconsistency_resolution(
             for start in range(0, net_score.shape[0], batch_size)
         ]
     )
+    if valid is not None:
+        aggregated_predictions["has_valid_predictions"] = valid | (
+            aggregated_predictions["net_score"] > decision_threshold
+        )
     return aggregated_predictions
 
 
@@ -197,14 +205,20 @@ def resolve_and_decide(
             chebi_graph = load_chebi_graph()
         if disjoint_files is None:
             disjoint_files = get_disjoint_files()
+        params = inconsistency_resolution_params or {}
         smoother = get_smoother_class(inconsistency_resolution)(
             chebi_graph=chebi_graph,
             label_names=None,
             disjoint_files=disjoint_files,
-            **(inconsistency_resolution_params or {}),
+            **params,
         )
+        if "threshold" not in params and hasattr(smoother, "threshold"):
+            smoother.threshold = decision_threshold
         aggregated_predictions = apply_inconsistency_resolution(
-            smoother, predicted_classes, aggregated_predictions
+            smoother,
+            predicted_classes,
+            aggregated_predictions,
+            decision_threshold=decision_threshold,
         )
 
     class_decisions = (

@@ -126,7 +126,7 @@ def read_classes(classes_file):
     if classes_file is None:
         return None
     with open(classes_file, "r", encoding="utf-8") as f:
-        return f.read().split()
+        return list(dict.fromkeys(f.read().split()))
 
 
 def load_dataset(
@@ -553,8 +553,9 @@ def collect_classes(ensemble_config, prediction_cache_dir, data_path, split, out
     "--decision-threshold",
     "-dt",
     type=float,
-    default=0,
-    help="Threshold for classifying predictions (default: 0)",
+    default=None,
+    help="Probability a class has to exceed to be predicted (default: the operating point the "
+    "ensemble reports)",
 )
 def predict(
     ensemble_config,

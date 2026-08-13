@@ -7,6 +7,7 @@ from chebifier.inconsistency_resolution import (
     NEUTRAL,
     ScoreBasedPredictionSmoother,
     densified_exclusion_matrix,
+    seed_uncovered,
     to_logit,
 )
 
@@ -135,11 +136,7 @@ class HexSmoother(ScoreBasedPredictionSmoother):
     def _resolve_row(self, f, scores, valid):
         pos = scores > NEUTRAL
         known = torch.ones_like(pos) if valid is None else valid
-        if valid is not None:
-            pos = pos & valid
-        active = (
-            ((scores - NEUTRAL).abs() < self.delta) | self._violating(pos)
-        ) & known
+        active = ((scores - NEUTRAL).abs() < self.delta) | self._violating(pos)
         idx = torch.nonzero(active).flatten()
         if idx.numel() == 0:
             return scores
@@ -198,6 +195,7 @@ class HexSmoother(ScoreBasedPredictionSmoother):
     def __call__(self, preds, valid_mask=None):
         if preds.shape[1] == 0:
             return preds
+        preds = seed_uncovered(preds, valid_mask)
         out = preds.clone()
         # the softmax over legal states is a log-linear model, P(state) proportional to
         # exp(sum of the logits that are on), so this is the one step that needs log-odds

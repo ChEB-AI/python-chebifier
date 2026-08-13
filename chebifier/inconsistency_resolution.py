@@ -67,6 +67,12 @@ def to_logit(p):
     return torch.log(p) - torch.log1p(-p)
 
 
+def seed_uncovered(preds, valid_mask):
+    if valid_mask is None:
+        return preds
+    return torch.where(valid_mask, preds, torch.full_like(preds, NEUTRAL))
+
+
 def densified_exclusion_matrix(label_names, label_successors, disjoint_groups):
     label_index = {label: i for i, label in enumerate(label_names)}
     succ = label_successors[0] if label_successors.dim() == 3 else label_successors
@@ -90,6 +96,7 @@ def densified_exclusion_pairs(label_names, label_successors, disjoint_groups):
 
 
 def get_smoother_class(name):
+    from chebifier.hex_bounded import BoundedHexSmoother
     from chebifier.hex_graph import HexSmoother
     from chebifier.ilr import GodelILRSmoother, LukasiewiczILRSmoother
 
@@ -97,7 +104,8 @@ def get_smoother_class(name):
         "score-based": ScoreBasedPredictionSmoother,
         "ilr-godel": GodelILRSmoother,
         "ilr-lukasiewicz": LukasiewiczILRSmoother,
-        "hex": HexSmoother,
+        "hex": BoundedHexSmoother,
+        "hex-legacy": HexSmoother,
     }
     if name not in smoothers:
         raise ValueError(
@@ -107,7 +115,13 @@ def get_smoother_class(name):
     return smoothers[name]
 
 
-SMOOTHER_NAMES = ["score-based", "ilr-godel", "ilr-lukasiewicz", "hex"]
+SMOOTHER_NAMES = [
+    "score-based",
+    "ilr-godel",
+    "ilr-lukasiewicz",
+    "hex",
+    "hex-legacy",
+]
 
 
 class PredictionSmoother:
@@ -184,6 +198,7 @@ class PredictionSmoother:
             # no labels predicted
             return preds
         # preds shape: (n_samples, n_labels)
+        preds = seed_uncovered(preds, valid_mask)
         preds_sum_orig = torch.sum(preds)
         # step 1: apply implications: for each class, set prediction to max of itself and all successors
         preds = self.resolve_subsumption_violations(preds)

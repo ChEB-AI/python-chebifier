@@ -135,7 +135,7 @@ def get_superclasses(chebi_graph, chebi_id: str) -> tuple[str, ...]:
 
 def labels_from_graph(chebi_ids, classes, chebi_graph) -> np.ndarray:
     cls_to_idx = {str(cls): idx for idx, cls in enumerate(classes)}
-    labels = np.zeros((len(chebi_ids), len(cls_to_idx)), dtype=bool)
+    labels = np.zeros((len(chebi_ids), len(classes)), dtype=bool)
     for row, chebi_id in enumerate(chebi_ids):
         chebi_id = str(chebi_id)
         # a molecule is a member of its own class, which is not among its superclasses
