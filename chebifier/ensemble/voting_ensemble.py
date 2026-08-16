@@ -5,6 +5,7 @@ import yaml
 from torchmetrics import F1Score
 
 from chebifier.ensemble.base_ensemble import BaseEnsemble
+from chebifier.inconsistency_resolution import confidence
 
 
 class VotingEnsemble(BaseEnsemble):
@@ -179,9 +180,4 @@ class WMVwithConfidenceEnsemble(VotingEnsemble):
     def calculate_confidence(
         self, predictions_tensor: torch.Tensor, thresholds: torch.Tensor
     ) -> torch.Tensor:
-        scores = predictions_tensor.nan_to_num()
-        return torch.where(
-            scores < thresholds,
-            (thresholds - scores) / thresholds,
-            (scores - thresholds) / (1 - thresholds),
-        )
+        return confidence(predictions_tensor.nan_to_num(), thresholds)

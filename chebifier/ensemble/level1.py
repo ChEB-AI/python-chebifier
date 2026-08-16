@@ -35,6 +35,17 @@ def rescale_to_threshold(scores, thresholds):
     )
 
 
+def rescale_from_threshold(scores, thresholds):
+    scores = np.asarray(scores, dtype=np.float32)
+    thresholds = np.asarray(thresholds, dtype=np.float32)
+    return np.where(
+        scores < POSITIVE_THRESHOLD,
+        thresholds * scores / POSITIVE_THRESHOLD,
+        thresholds
+        + (1 - thresholds) * (scores - POSITIVE_THRESHOLD) / POSITIVE_THRESHOLD,
+    )
+
+
 def threshold_array(thresholds, model_names):
     missing = [name for name in model_names if name not in thresholds]
     if missing:

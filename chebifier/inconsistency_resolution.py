@@ -56,21 +56,25 @@ def get_disjoint_groups(disjoint_files):
 NEUTRAL = 0.5
 
 
-def to_logit(p):
-    """Log-odds of a probability, for the one place that needs them: the HEX log-linear model.
+def confidence(scores, threshold):
+    """How far a score sits from the decision threshold, scaled separately on each side so that a
+    maximally confident negative and a maximally confident positive both count 1.
 
-    Ensembles report probabilities, which is what the resolution methods work in. Only the HEX
-    softmax over legal states needs logits, and its unanimous predictions sit exactly at 0 and 1,
-    so the clamp is what keeps them finite.
+    The raw distance is not comparable across the two sides once the threshold leaves NEUTRAL: at
+    threshold 0.2 the positive side spans 0.8 and the negative side only 0.2, so the positive side
+    would win almost every comparison.
     """
-    p = p.clamp(1e-6, 1 - 1e-6)
-    return torch.log(p) - torch.log1p(-p)
+    return torch.where(
+        scores < threshold,
+        (threshold - scores) / threshold,
+        (scores - threshold) / (1 - threshold),
+    )
 
 
-def seed_uncovered(preds, valid_mask):
+def seed_uncovered(preds, valid_mask, fill=NEUTRAL):
     if valid_mask is None:
         return preds
-    return torch.where(valid_mask, preds, torch.full_like(preds, NEUTRAL))
+    return torch.where(valid_mask, preds, torch.full_like(preds, fill))
 
 
 def densified_exclusion_matrix(label_names, label_successors, disjoint_groups):
@@ -97,7 +101,6 @@ def densified_exclusion_pairs(label_names, label_successors, disjoint_groups):
 
 def get_smoother_class(name):
     from chebifier.hex_bounded import BoundedHexSmoother
-    from chebifier.hex_graph import HexSmoother
     from chebifier.ilr import GodelILRSmoother, LukasiewiczILRSmoother
 
     smoothers = {
@@ -105,7 +108,6 @@ def get_smoother_class(name):
         "ilr-godel": GodelILRSmoother,
         "ilr-lukasiewicz": LukasiewiczILRSmoother,
         "hex": BoundedHexSmoother,
-        "hex-legacy": HexSmoother,
     }
     if name not in smoothers:
         raise ValueError(
@@ -120,24 +122,36 @@ SMOOTHER_NAMES = [
     "ilr-godel",
     "ilr-lukasiewicz",
     "hex",
-    "hex-legacy",
 ]
 
 
-class PredictionSmoother:
+class ScoreBasedPredictionSmoother:
     """Removes implication and disjointness violations from predictions.
 
-    Predictions are probabilities in [0, 1]: NEUTRAL (0.5) means the ensemble is undecided, and a
-    class is predicted when its probability exceeds the ensemble's decision threshold.
+    Predictions are probabilities in [0, 1]: a class is predicted when its probability exceeds
+    `threshold`, the ensemble's decision threshold, which is also the point a suppressed class is
+    pushed to. Ensembles that calibrate their own operating point report it as
+    `BaseEnsemble.decision_threshold`; leaving `threshold` at NEUTRAL when the decision is taken
+    somewhere else lets suppressed classes stay above the decision boundary.
+
+    Implication violations are resolved by score: for A subclassOf B where score(A) > score(B),
+    either set score(B) = max(score(B), score(A)) if A is the more confident of the two, or set
+    score(A) = min(score(A), score(B)) otherwise.
     """
 
     def __init__(
-        self, chebi_graph, label_names=None, disjoint_files=None, verbose=False
+        self,
+        chebi_graph,
+        label_names=None,
+        disjoint_files=None,
+        verbose=False,
+        threshold=NEUTRAL,
     ):
         self.chebi_graph = chebi_graph
         self.set_label_names(label_names)
         self.disjoint_groups = get_disjoint_groups(disjoint_files)
         self.verbose = verbose
+        self.threshold = threshold
 
     def set_label_names(self, label_names):
         if label_names is not None:
@@ -162,9 +176,19 @@ class PredictionSmoother:
 
     def resolve_subsumption_violations(self, preds):
         preds = preds.unsqueeze(1)
-        preds_masked_succ = torch.where(self.label_successors, preds, 0)
-        # preds_masked_succ shape: (n_samples, n_labels, n_labels)
-        return preds_masked_succ.max(dim=2).values
+        # label_successors[i, j] means j is a superclass of i, so raising a class to the score of its
+        # subclasses means taking the max over its predecessors (and vice versa for lowering it).
+        preds_masked_predec = torch.where(
+            torch.transpose(self.label_successors, 1, 2), preds, -torch.inf
+        )
+        preds_optimistic = preds_masked_predec.max(dim=2).values
+        preds_masked_succ = torch.where(self.label_successors, preds, torch.inf)
+        preds_pessimistic = preds_masked_succ.min(dim=2).values
+        # take whichever the ensemble is more confident about
+        preds_direction = confidence(preds_optimistic, self.threshold) > confidence(
+            preds_pessimistic, self.threshold
+        )
+        return torch.where(preds_direction, preds_optimistic, preds_pessimistic)
 
     def resolve_disjointness_violations(self, preds):
         preds_sum_orig = torch.sum(preds)
@@ -180,7 +204,7 @@ class PredictionSmoother:
                     True
                 )
                 preds[:, disj_group] = torch.where(
-                    keep, group_preds, group_preds.clamp(max=NEUTRAL)
+                    keep, group_preds, group_preds.clamp(max=self.threshold)
                 )
         if self.verbose and torch.sum(preds) != preds_sum_orig:
             print(f"Preds change (step 2): {torch.sum(preds) - preds_sum_orig}")
@@ -198,7 +222,7 @@ class PredictionSmoother:
             # no labels predicted
             return preds
         # preds shape: (n_samples, n_labels)
-        preds = seed_uncovered(preds, valid_mask)
+        preds = seed_uncovered(preds, valid_mask, self.threshold)
         preds_sum_orig = torch.sum(preds)
         # step 1: apply implications: for each class, set prediction to max of itself and all successors
         preds = self.resolve_subsumption_violations(preds)
@@ -208,38 +232,3 @@ class PredictionSmoother:
         # step 2: eliminate disjointness violations: for group of disjoint classes, set all except max to 0 (if it is not already lower)
         preds = self.resolve_disjointness_violations(preds)
         return preds
-
-
-class PessimisticPredictionSmoother(PredictionSmoother):
-    """Always assumes the positive prediction is wrong (in case of implication violations)"""
-
-    def resolve_subsumption_violations(self, preds):
-        preds = preds.unsqueeze(1)
-        preds_masked_predec = torch.where(
-            torch.transpose(self.label_successors, 1, 2), preds, 1
-        )
-        preds = preds_masked_predec.min(dim=2).values
-        return preds
-
-
-class ScoreBasedPredictionSmoother(PredictionSmoother):
-    """Removes implication violations from predictions based on the predicted probabilities: for A
-    subclassOf B where score(A) > score(B), either set score(B) = max(score(B), score(A)) if A is
-    further from NEUTRAL than B, or set score(A) = min(score(A), score(B)) otherwise.
-    """
-
-    def resolve_subsumption_violations(self, preds):
-        preds = preds.unsqueeze(1)
-        # label_successors[i, j] means j is a superclass of i, so raising a class to the score of its
-        # subclasses means taking the max over its predecessors (and vice versa for lowering it).
-        preds_masked_predec = torch.where(
-            torch.transpose(self.label_successors, 1, 2), preds, -torch.inf
-        )
-        preds_optimistic = preds_masked_predec.max(dim=2).values
-        preds_masked_succ = torch.where(self.label_successors, preds, torch.inf)
-        preds_pessimistic = preds_masked_succ.min(dim=2).values
-        # take whichever the ensemble is more confident about, i.e. further from NEUTRAL
-        preds_direction = (preds_optimistic - NEUTRAL).abs() > (
-            preds_pessimistic - NEUTRAL
-        ).abs()
-        return torch.where(preds_direction, preds_optimistic, preds_pessimistic)

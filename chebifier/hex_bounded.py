@@ -294,6 +294,15 @@ def bounded_marginals(
     return out
 
 
+def has_violation(g, y):
+    pos = np.nonzero(y)[0]
+    if pos.size == 0:
+        return False
+    if (g.strict[pos].any(0) & ~y).any():
+        return True
+    return bool(pos.size > 1 and g.excl[np.ix_(pos, pos)].any())
+
+
 _WORKER_GRAPH = None
 
 
@@ -329,7 +338,7 @@ def bounded_marginals_many(
     F,
     budget=400,
     threshold=None,
-    check_every=200,
+    check_every=1000,
     processes=None,
     chunksize=8,
     pool=None,
@@ -367,7 +376,7 @@ class BoundedHexSmoother:
         threshold=0.5,
         processes=None,
     ):
-        from chebifier.inconsistency_resolution import PredictionSmoother
+        from chebifier.inconsistency_resolution import ScoreBasedPredictionSmoother
 
         self.verbose = verbose
         self.budget = budget
@@ -376,7 +385,9 @@ class BoundedHexSmoother:
         self.n_uncertified = 0
         self._pool = None
         self.graph = None
-        self._base = PredictionSmoother(chebi_graph, None, disjoint_files, verbose)
+        self._base = ScoreBasedPredictionSmoother(
+            chebi_graph, None, disjoint_files, verbose
+        )
         self.set_label_names(label_names)
 
     def set_label_names(self, label_names):
@@ -425,22 +436,42 @@ class BoundedHexSmoother:
     def __call__(self, preds, valid_mask=None):
         import torch
 
+        from chebifier.ensemble.level1 import (
+            POSITIVE_THRESHOLD,
+            rescale_from_threshold,
+            rescale_to_threshold,
+        )
         from chebifier.inconsistency_resolution import seed_uncovered
 
-        preds = seed_uncovered(preds, valid_mask)
-        p = np.clip(preds.detach().cpu().numpy().astype(np.float64), 1e-6, 1 - 1e-6)
+        # the marginals are taken over legal states only, so they already satisfy the constraints
+        # as inequalities: disjoint classes cannot both exceed half the mass, and a subclass never
+        # carries more than its superclass. Thresholding turns those inequalities into a consistent
+        # assignment only at the neutral point, so the ensemble's operating point is rescaled onto
+        # it on the way in and the marginals are rescaled back on the way out.
+        preds = seed_uncovered(preds, valid_mask, self.threshold)
+        p = rescale_to_threshold(preds.detach().cpu().numpy(), self.threshold)
+        p = np.clip(p.astype(np.float64), 1e-6, 1 - 1e-6)
         f = np.log(p) - np.log1p(-p)
         res = bounded_marginals_many(
             self.graph,
             f,
             budget=self.budget,
-            threshold=self.threshold,
+            threshold=POSITIVE_THRESHOLD,
             processes=self.processes,
             pool=self._worker_pool(),
         )
         lb, ub = res["lb"], res["ub"]
-        certified = (lb > self.threshold) | (ub <= self.threshold)
+        certified = (lb > POSITIVE_THRESHOLD) | (ub <= POSITIVE_THRESHOLD)
         self.n_uncertified += int((~certified).sum())
+        # reporting the lower bound sends every uncertified label negative, which keeps the
+        # assignment consistent: lb > 1/2 for two disjoint classes would put their true marginals
+        # over the total mass
+        out = rescale_from_threshold(lb, self.threshold)
+        out = np.where(
+            lb > POSITIVE_THRESHOLD,
+            np.maximum(out, np.nextafter(np.float32(self.threshold), np.float32(1))),
+            np.minimum(out, np.float32(self.threshold)),
+        )
         if self.verbose:
             print(f"BoundedHex: {int((~certified).sum())} uncertified label decisions")
-        return torch.tensor(lb, dtype=preds.dtype, device=preds.device)
+        return torch.tensor(out, dtype=preds.dtype, device=preds.device)

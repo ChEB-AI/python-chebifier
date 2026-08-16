@@ -6,7 +6,7 @@ import tqdm
 
 from chebifier import modelwise_smiles_lru_cache
 from chebifier.prediction_models import BasePredictor
-from chebifier.utils import get_superclasses, to_smiles
+from chebifier.utils import _isa_graph, get_superclasses, to_smiles
 
 
 def _patch_c3p(c3p_classifier):
@@ -44,12 +44,18 @@ class C3PPredictor(BasePredictor):
         model_name: str,
         program_directory: Optional[Path] = None,
         chemical_classes: Optional[List[str]] = None,
+        keep_classes_outside_graph: bool = False,
         **kwargs,
     ):
         super().__init__(model_name, **kwargs)
         self.program_directory = program_directory
         self.chemical_classes = chemical_classes
         self.chebi_graph = kwargs.get("chebi_graph", None)
+        # C3P ships programs for classes outside the graph's scope - minerals, atoms, mixtures,
+        # polymers - which are not molecular entities. Their gold labels would be read off a
+        # hierarchy that does not contain them, i.e. no positives at all, so they enter the
+        # evaluation as columns nothing can score on. Set this to keep them anyway.
+        self.keep_classes_outside_graph = keep_classes_outside_graph
 
     @modelwise_smiles_lru_cache.batch_decorator
     def predict_list(self, smiles_list: list[str]) -> list:
@@ -81,9 +87,17 @@ class C3PPredictor(BasePredictor):
         for idx, smiles in enumerate(smiles_list):
             indices_by_smiles.setdefault(smiles, []).append(idx)
 
+        in_scope = None
+        if self.chebi_graph is not None and not self.keep_classes_outside_graph:
+            in_scope = _isa_graph(self.chebi_graph)
+
         result_reformatted = [dict() for _ in range(len(smiles_list))]
+        dropped = set()
         for result in tqdm.tqdm(result_list, desc="Reformatting C3P results"):
             chebi_id = result.class_id.split(":")[1]
+            if in_scope is not None and chebi_id not in in_scope:
+                dropped.add(chebi_id)
+                continue
             if result.is_match and self.chebi_graph is not None:
                 parents = get_superclasses(self.chebi_graph, chebi_id)
             else:
@@ -93,6 +107,12 @@ class C3PPredictor(BasePredictor):
                 preds_i[chebi_id] = result.is_match
                 for parent in parents:
                     preds_i[parent] = 1
+        if dropped:
+            print(
+                f"C3P: dropped {len(dropped)} classes outside the ChEBI graph "
+                f"({', '.join(sorted(dropped)[:8])}"
+                f"{', ...' if len(dropped) > 8 else ''})"
+            )
         return result_reformatted
 
     def explain_smiles(self, smiles):

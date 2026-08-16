@@ -1,13 +1,14 @@
 import torch
 
 from chebifier.inconsistency_resolution import (
-    PredictionSmoother,
+    NEUTRAL,
+    ScoreBasedPredictionSmoother,
     densified_exclusion_pairs,
     seed_uncovered,
 )
 
 
-class ILRSmoother(PredictionSmoother):
+class ILRSmoother(ScoreBasedPredictionSmoother):
     def __init__(
         self,
         chebi_graph,
@@ -17,6 +18,7 @@ class ILRSmoother(PredictionSmoother):
         alpha=1.0,
         max_iter=10,
         tol=1e-4,
+        threshold=NEUTRAL,
     ):
         self.alpha = alpha
         self.max_iter = max_iter
@@ -25,7 +27,7 @@ class ILRSmoother(PredictionSmoother):
         self.last_iterations = 0
         self.max_iterations = 0
         self._valid = None
-        super().__init__(chebi_graph, label_names, disjoint_files, verbose)
+        super().__init__(chebi_graph, label_names, disjoint_files, verbose, threshold)
         self._build_exclusions()
 
     def set_label_names(self, label_names):
@@ -76,7 +78,7 @@ class ILRSmoother(PredictionSmoother):
         if preds.shape[1] == 0:
             return preds
         self._valid = valid_mask
-        p = seed_uncovered(preds, valid_mask).clamp(0.0, 1.0)
+        p = seed_uncovered(preds, valid_mask, self.threshold).clamp(0.0, 1.0)
         self.last_iterations = 0
         for _ in range(self.max_iter):
             p_new = self._step(p)
@@ -124,7 +126,7 @@ class LukasiewiczILRSmoother(ILRSmoother):
             return torch.zeros_like(p)
         a, b = self.excl_pairs[:, 0], self.excl_pairs[:, 1]
         src = self._source(p, 0.0)
-        excess = (src[:, a] + src[:, b] - 1.0).clamp(min=0.0) / 2
+        excess = (src[:, a] + src[:, b] - 2.0 * self.threshold).clamp(min=0.0) / 2
         acc = torch.zeros_like(p)
         n = p.shape[0]
         acc.scatter_reduce_(

@@ -246,7 +246,12 @@ After a decision has been made for each class independently, the consistency of 
 and disjointness axioms is checked. This is
 done in 3 steps:
 - (1) First, the hierarchy is corrected. For each pair of classes $A$ and $B$ where $A$ is a subclass of $B$ (following
-the is-a relation in ChEBI), we set the ensemble prediction of $A$ to $0$ if the _absolute value_ of $B$'s score is large than that of $A$. For example, if $A$ has a net score of $3$ and $B$ has a net score of $-4$, the ensemble will set $A$ to $0$ (i.e., predict neither $A$ nor $B$).
+the is-a relation in ChEBI), we set the ensemble prediction of $A$ to that of $B$ if $B$ is the more
+_confident_ of the two, and $B$ to that of $A$ otherwise. Confidence is the distance from the decision
+threshold, scaled separately on each side of it so that a maximally confident negative and a maximally
+confident positive both count $1$ — the same measure `wmv-conf` weights its votes by. For example, if
+$A$ scores $0.6$ and $B$ scores $0.1$ at a threshold of $0.5$, $B$ is the more confident one
+($0.8$ against $0.2$), so $A$ is lowered to $0.1$ and neither class is predicted.
 - (2) Next, we check for disjointness. This is not specified directly in ChEBI, but in an additional ChEBI module ([chebi-disjoints.owl](https://ftp.ebi.ac.uk/pub/databases/chebi/ontology/)).
 We have extracted these disjointness axioms into a CSV file and added some more disjointness axioms ourselves (see
 `data>disjoint_chebi.csv` and `data>disjoint_additional.csv`). If two classes $A$ and $B$ are disjoint and we predict
@@ -273,12 +278,11 @@ operating point the ensemble reports as `decision_threshold`, which is not alway
   Gödel is winner-take-all (it raises the parent to the child, and zeroes the weaker side of a
   disjoint pair), whereas Łukasiewicz shares the correction — a disjointness violation with scores
   $0.8$ and $0.7$ becomes $0.55$ and $0.45$ rather than $0.8$ and $0$.
-- `hex`, `hex-legacy` — **HEX graphs**
+- `hex` — **HEX graphs**
   ([Deng et al. 2014](https://doi.org/10.1007/978-3-319-10590-1_4)). A CRF over binary label
   vectors in which hierarchy edges forbid $(B, A) = (0, 1)$ and exclusion edges forbid
   $(1, 1)$. Illegal states have probability zero, so the marginals satisfy
   $P(A) \le P(B)$ for $A \subseteq B$ and $P(A) + P(B) \le 1$ for disjoint $A, B$ by construction.
-  The two variants differ only in how they cope with the intractability described below.
 
 `ilr-godel` and `ilr-lukasiewicz` are tuned with `alpha`, `max_iter` and `tol`, passed as
 `-irp alpha=0.5`. `scripts/calibrate_resolution.py` grid-searches resolution parameters against a
@@ -293,8 +297,8 @@ $O(\min(|V|2^w, |V|2^{\Omega}))$, and on a 2117-class ChEBI label set the maximu
 $\Omega = 2115$ and the junction tree width is $\le 62$, with over 5 million legal states in the
 largest cliques — the paper's efficiency argument assumes labels are mostly mutually exclusive,
 whereas ChEBI labels overwhelmingly overlap (~25 classes hold per molecule). Exact junction-tree
-inference is therefore not an option at this scale, and both variants deviate from the published
-method; this should be reported as such.
+inference is therefore not an option at this scale, so `hex` deviates from the published method;
+this should be reported as such.
 
 `hex` (`chebifier/hex_bounded.py`) replaces exact inference with a **branch-and-bound over partial
 assignments**. Each search node fixes some labels on and some off, leaving the rest free, and
@@ -311,10 +315,3 @@ therefore decided negative — ties go against predicting the class — and the 
 labels is accumulated in `n_uncertified`. Pass `budget` and `processes` (molecules are bounded in
 parallel across a worker pool) with `-irp budget=4000`. `threshold` defaults to the ensemble's
 operating point and only needs to be set explicitly to override it.
-
-`hex-legacy` (`chebifier/hex_graph.py`) instead *clamps*: classes whose score is further than
-`delta` from the boundary, and which are not involved in a violation, are fixed to their sign; that
-assignment is propagated to a fixpoint; and exact inference runs only on the connected components
-of what remains (typically fewer than 30 classes). Components above `max_component_size` fall back
-to `score-based`, counted in `n_fallbacks`. Unlike `hex`, it gives no guarantee about how far the
-result is from the true marginals.
