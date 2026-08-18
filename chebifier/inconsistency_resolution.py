@@ -174,23 +174,42 @@ class ScoreBasedPredictionSmoother:
                         self.label_successors[i, label_index[p]] = 1
             self.label_successors = self.label_successors.unsqueeze(0)
 
-    def resolve_subsumption_violations(self, preds):
+    def _inherit(self, attribution, source, changed):
+        """A class whose score was taken from another class inherits that class' attribution:
+        whoever drove the donor's score is the reason this class ended up where it did. Classes
+        whose score survived the step keep their own attribution.
+        """
+        if attribution is None:
+            return None
+        gathered = torch.gather(
+            attribution, 1, source.unsqueeze(-1).expand(-1, -1, attribution.shape[2])
+        )
+        return torch.where(changed.unsqueeze(-1), gathered, attribution)
+
+    def resolve_subsumption_violations(self, preds, attribution=None):
+        preds_orig = preds
         preds = preds.unsqueeze(1)
         # label_successors[i, j] means j is a superclass of i, so raising a class to the score of its
         # subclasses means taking the max over its predecessors (and vice versa for lowering it).
         preds_masked_predec = torch.where(
             torch.transpose(self.label_successors, 1, 2), preds, -torch.inf
         )
-        preds_optimistic = preds_masked_predec.max(dim=2).values
+        preds_optimistic, source_optimistic = preds_masked_predec.max(dim=2)
         preds_masked_succ = torch.where(self.label_successors, preds, torch.inf)
-        preds_pessimistic = preds_masked_succ.min(dim=2).values
+        preds_pessimistic, source_pessimistic = preds_masked_succ.min(dim=2)
         # take whichever the ensemble is more confident about
         preds_direction = confidence(preds_optimistic, self.threshold) > confidence(
             preds_pessimistic, self.threshold
         )
-        return torch.where(preds_direction, preds_optimistic, preds_pessimistic)
+        resolved = torch.where(preds_direction, preds_optimistic, preds_pessimistic)
+        attribution = self._inherit(
+            attribution,
+            torch.where(preds_direction, source_optimistic, source_pessimistic),
+            resolved != preds_orig,
+        )
+        return resolved, attribution
 
-    def resolve_disjointness_violations(self, preds):
+    def resolve_disjointness_violations(self, preds, attribution=None):
         preds_sum_orig = torch.sum(preds)
 
         for disj_group in self.disjoint_groups:
@@ -200,35 +219,52 @@ class ScoreBasedPredictionSmoother:
             if len(disj_group) > 1:
                 group_preds = preds[:, disj_group]
                 keep = torch.zeros_like(group_preds, dtype=torch.bool)
-                keep[torch.arange(group_preds.shape[0]), group_preds.argmax(dim=1)] = (
-                    True
-                )
-                preds[:, disj_group] = torch.where(
+                winner = group_preds.argmax(dim=1)
+                keep[torch.arange(group_preds.shape[0]), winner] = True
+                resolved = torch.where(
                     keep, group_preds, group_preds.clamp(max=self.threshold)
                 )
+                if attribution is not None:
+                    # a class pushed down by a disjoint sibling is there because of whoever
+                    # asserted that sibling, so it takes over the winner's attribution
+                    group_attribution = attribution[:, disj_group]
+                    winner_attribution = group_attribution[
+                        torch.arange(group_preds.shape[0]), winner
+                    ].unsqueeze(1)
+                    attribution[:, disj_group] = torch.where(
+                        (resolved != group_preds).unsqueeze(-1),
+                        winner_attribution,
+                        group_attribution,
+                    )
+                preds[:, disj_group] = resolved
         if self.verbose and torch.sum(preds) != preds_sum_orig:
             print(f"Preds change (step 2): {torch.sum(preds) - preds_sum_orig}")
         preds_sum_orig = torch.sum(preds)
         # step 3: disjointness violation removal may have caused new implication inconsistencies -> set each prediction to min of superclasses
+        preds_orig = preds
         preds = preds.unsqueeze(1)
         preds_masked_succ = torch.where(self.label_successors, preds, torch.inf)
-        preds = preds_masked_succ.min(dim=2).values
+        preds, source = preds_masked_succ.min(dim=2)
+        attribution = self._inherit(attribution, source, preds != preds_orig)
         if self.verbose and torch.sum(preds) != preds_sum_orig:
             print(f"Preds change (step 3): {torch.sum(preds) - preds_sum_orig}")
-        return preds
+        return preds, attribution
 
-    def __call__(self, preds, valid_mask=None):
+    def __call__(self, preds, valid_mask=None, attribution=None):
+        """With `attribution` - a (n_samples, n_labels, n_models) tensor whose rows sum to 1 -
+        the attribution is carried through the resolution alongside the scores and returned as a
+        second element."""
         if preds.shape[1] == 0:
             # no labels predicted
-            return preds
+            return preds if attribution is None else (preds, attribution)
         # preds shape: (n_samples, n_labels)
         preds = seed_uncovered(preds, valid_mask, self.threshold)
         preds_sum_orig = torch.sum(preds)
         # step 1: apply implications: for each class, set prediction to max of itself and all successors
-        preds = self.resolve_subsumption_violations(preds)
+        preds, attribution = self.resolve_subsumption_violations(preds, attribution)
 
         if self.verbose and torch.sum(preds) != preds_sum_orig:
             print(f"Preds change (step 1): {torch.sum(preds) - preds_sum_orig}")
         # step 2: eliminate disjointness violations: for group of disjoint classes, set all except max to 0 (if it is not already lower)
-        preds = self.resolve_disjointness_violations(preds)
-        return preds
+        preds, attribution = self.resolve_disjointness_violations(preds, attribution)
+        return preds if attribution is None else (preds, attribution)

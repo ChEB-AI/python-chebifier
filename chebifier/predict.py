@@ -27,15 +27,23 @@ def apply_inconsistency_resolution(
     smoother.set_label_names(class_names)
     net_score = aggregated_predictions["net_score"]
     valid = aggregated_predictions.get("has_valid_predictions")
-    aggregated_predictions["net_score"] = torch.cat(
-        [
-            smoother(
-                net_score[start : start + batch_size],
-                None if valid is None else valid[start : start + batch_size],
-            )
-            for start in range(0, net_score.shape[0], batch_size)
-        ]
-    )
+    attribution = aggregated_predictions.get("attribution")
+    batches = [
+        smoother(
+            net_score[start : start + batch_size],
+            None if valid is None else valid[start : start + batch_size],
+            **(
+                {}
+                if attribution is None
+                else {"attribution": attribution[start : start + batch_size]}
+            ),
+        )
+        for start in range(0, net_score.shape[0], batch_size)
+    ]
+    if attribution is not None:
+        aggregated_predictions["attribution"] = torch.cat([a for _, a in batches])
+        batches = [scores for scores, _ in batches]
+    aggregated_predictions["net_score"] = torch.cat(batches)
     if valid is not None:
         aggregated_predictions["has_valid_predictions"] = valid | (
             aggregated_predictions["net_score"] > decision_threshold
@@ -164,6 +172,7 @@ def aggregate_predictions(
     prediction_cache_dir: Optional[str] = None,
     classes: Optional[list[str]] = None,
     split: str = "test",
+    attribution: bool = False,
 ) -> tuple[dict, list[str]]:
     """Get base learner predictions and aggregate them with the ensemble model.
 
@@ -176,7 +185,9 @@ def aggregate_predictions(
     test_predictions, predicted_classes = collect_base_learner_predictions(
         test_predictions, classes=classes
     )
-    aggregated_predictions = ensemble_model.predict(test_predictions, molecules)
+    aggregated_predictions = ensemble_model.predict(
+        test_predictions, molecules, **({"attribution": True} if attribution else {})
+    )
     # net_score, has_valid_predictions, intermediate_results_dict
     return aggregated_predictions, predicted_classes
 
@@ -249,6 +260,7 @@ def predict(
     decision_threshold: Optional[float] = None,
     classes: Optional[list[str]] = None,
     split: str = "test",
+    attribution: bool = False,
 ) -> dict:
     """
     Get end-to-end predictions from base learners and an ensemble model.
@@ -268,6 +280,9 @@ def predict(
             collect_base_learner_predictions. If None (the default), the union of all classes is used.
         split (str): Name of the dataset split, used to separate cached base learner predictions of
             different splits within the same cache directory.
+        attribution (bool): Also report, per (molecule, class), the share of the decision each base
+            learner is responsible for (summing to 1 over the base learners). Only supported by the
+            voting ensembles and the score-based inconsistency resolution.
 
     Returns:
         dict: A dictionary containing the final predictions and optionally the smoothed predictions.
@@ -279,6 +294,7 @@ def predict(
         prediction_cache_dir=prediction_cache_dir,
         classes=classes,
         split=split,
+        attribution=attribution,
     )
     return resolve_and_decide(
         aggregated_predictions,

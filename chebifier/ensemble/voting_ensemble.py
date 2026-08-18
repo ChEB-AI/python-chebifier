@@ -78,10 +78,20 @@ class VotingEnsemble(BaseEnsemble):
         # No trust unless a subclass measures it (e.g. WMVwithF1Ensemble)
         return 1
 
-    def predict(self, test_predictions: dict[str, torch.Tensor], molecules=None):
+    def predict(
+        self,
+        test_predictions: dict[str, torch.Tensor],
+        molecules=None,
+        attribution: bool = False,
+    ):
         """
         Aggregates predictions from multiple models by voting, each vote weighted by
         calculate_confidence * calculate_trust.
+
+        With `attribution`, the share each base learner holds of the weight mass cast for a
+        (molecule, class) pair is reported as well. That share is exactly the fraction of the net
+        score the model controls: the score is a weight-normalised average of the votes, so moving
+        one model's vote from reject to assert moves the score by its share.
 
         The net score is the weighted agreement among the models that voted, mapped onto [0, 1]:
         1 if they unanimously predict the class, 0 if they unanimously reject it, 0.5 if they are
@@ -152,7 +162,7 @@ class VotingEnsemble(BaseEnsemble):
         ).clamp(
             0.0, 1.0
         )  # Shape: (num_molecules, num_classes)
-        return {
+        result = {
             "net_score": net_score,
             "has_valid_predictions": has_valid_predictions,
             "positive_sum": positive_sum,
@@ -161,6 +171,13 @@ class VotingEnsemble(BaseEnsemble):
             "positive_mask": positive_mask,
             "negative_mask": negative_mask,
         }
+        if attribution:
+            weights = positive_weighted + negative_weighted
+            result["attribution"] = weights / weights.sum(dim=2, keepdim=True).clamp(
+                min=1e-12
+            )
+            result["attribution_models"] = list(test_predictions.keys())
+        return result
 
 
 class MajorityVotingEnsemble(VotingEnsemble):
