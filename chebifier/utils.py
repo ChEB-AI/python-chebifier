@@ -1,15 +1,17 @@
 import functools
-import importlib.resources
 import os
 import pickle
 
-import fastobo
 import networkx as nx
-import requests
+import numpy as np
 import yaml
+from chebi_utils.obo_extractor import get_hierarchy_subgraph
+from chebi_utils.read_molecule import smiles_or_inchi_to_mol
 from rdkit import Chem
 
 from chebifier.hugging_face import download_model_files
+
+CHEBI_VERSION = 252
 
 
 def load_chebi_graph(filename=None):
@@ -20,89 +22,13 @@ def load_chebi_graph(filename=None):
             {
                 "repo_id": "chebai/chebifier",
                 "repo_type": "dataset",
-                "files": {"f": "chebi_graph.pkl"},
+                "files": {"f": f"chebi_graph_v{CHEBI_VERSION}.pkl"},
             }
         )["f"]
     else:
         print(f"Loading ChEBI graph from local {filename}...")
         file = filename
     return pickle.load(open(file, "rb"))
-
-
-def term_callback(doc):
-    """Similar to the chebai function, but reduced to the necessary fields. Also, ChEBI IDs are strings"""
-    parents = []
-    name = None
-    smiles = None
-    subset = None
-    for clause in doc:
-        if isinstance(clause, fastobo.term.PropertyValueClause):
-            t = clause.property_value
-            if str(t.relation) == "http://purl.obolibrary.org/obo/chebi/smiles":
-                assert smiles is None
-                smiles = t.value
-        # in older chebi versions, smiles strings are synonyms
-        # e.g. synonym: "[F-].[Na+]" RELATED SMILES [ChEBI]
-        elif isinstance(clause, fastobo.term.SynonymClause):
-            if "SMILES" in clause.raw_value():
-                assert smiles is None
-                smiles = clause.raw_value().split('"')[1]
-        elif isinstance(clause, fastobo.term.IsAClause):
-            chebi_id = str(clause.term)
-            chebi_id = chebi_id[chebi_id.index(":") + 1 :]
-            parents.append(chebi_id)
-        elif isinstance(clause, fastobo.term.NameClause):
-            name = str(clause.name)
-        elif isinstance(clause, fastobo.term.SubsetClause):
-            subset = str(clause.subset)
-        if isinstance(clause, fastobo.term.IsObsoleteClause):
-            if clause.obsolete:
-                # if the term document contains clause as obsolete as true, skips this document.
-                return False
-    chebi_id = str(doc.id)
-    chebi_id = chebi_id[chebi_id.index(":") + 1 :]
-    return {
-        "id": chebi_id,
-        "parents": parents,
-        "name": name,
-        "smiles": smiles,
-        "subset": subset,
-    }
-
-
-def build_chebi_graph(chebi_version=241):
-    """Creates a networkx graph for the ChEBI hierarchy. Usually, you don't want to call this function directly, but rather use the `load_chebi_graph` function."""
-    chebi_path = os.path.join("data", f"chebi_v{chebi_version}", "chebi.obo")
-    os.makedirs(os.path.join("data", f"chebi_v{chebi_version}"), exist_ok=True)
-    if not os.path.exists(chebi_path):
-        url = f"http://purl.obolibrary.org/obo/chebi/{chebi_version}/chebi.obo"
-        r = requests.get(url, allow_redirects=True)
-        open(chebi_path, "wb").write(r.content)
-    with open(chebi_path, encoding="utf-8") as chebi:
-        chebi = "\n".join(line for line in chebi if not line.startswith("xref:"))
-
-    elements = []
-    for term_doc in fastobo.loads(chebi):
-        if (
-            term_doc
-            and isinstance(term_doc.id, fastobo.id.PrefixedIdent)
-            and term_doc.id.prefix == "CHEBI"
-        ):
-            term_dict = term_callback(term_doc)
-            if term_dict:
-                elements.append(term_dict)
-
-    g = nx.DiGraph()
-    for n in elements:
-        g.add_node(n["id"], **n)
-
-    # Only take the edges which connect the existing nodes, to avoid internal creation of obsolete nodes
-    # https://github.com/ChEB-AI/python-chebai/pull/55#issuecomment-2386654142
-    g.add_edges_from(
-        [(p, q["id"]) for q in elements for p in q["parents"] if g.has_node(p)],
-        label="direct_child",
-    )
-    return nx.transitive_closure_dag(g)
 
 
 def get_disjoint_files():
@@ -132,15 +58,51 @@ def get_disjoint_files():
     return disjoint_files
 
 
-def get_default_configs():
-    default_config_name = "ensemble.yml"
-    print(f"Using default ensemble configuration from {default_config_name}")
-    with (
-        importlib.resources.files("chebifier")
-        .joinpath(default_config_name)
-        .open("r") as f
-    ):
+DEFAULT_CONFIGS = {
+    "eval": "config_26-09_eval.yml",
+    "web": "config_26-09_web.yml",
+}
+
+
+def load_ensemble_config(ensemble_config=None):
+    """Resolve an ensemble configuration to a config dict.
+
+    'web' and 'eval' are downloaded from the chebifier Hugging Face dataset, anything else is
+    treated as a path to a config file. None defaults to 'eval'.
+    """
+    if ensemble_config is None:
+        ensemble_config = "eval"
+    if ensemble_config in DEFAULT_CONFIGS:
+        filename = DEFAULT_CONFIGS[ensemble_config]
+        print(
+            f"Loading '{ensemble_config}' ensemble configuration ({filename}) from Hugging Face..."
+        )
+        path = download_model_files(
+            {
+                "repo_id": "chebai/chebifier",
+                "repo_type": "dataset",
+                "files": {"config": filename},
+            }
+        )["config"]
+    else:
+        print(f"Loading ensemble configuration from {ensemble_config}")
+        path = ensemble_config
+    with open(path, "r") as f:
         return yaml.safe_load(f)
+
+
+DEFAULT_ENSEMBLE_CALIBRATION = "wmv-f1-3star-symbolic"
+
+
+def download_ensemble_calibration(subfolder=DEFAULT_ENSEMBLE_CALIBRATION):
+    """Download the calibration of the standard ensemble from Hugging Face, returning its local path."""
+    from huggingface_hub import snapshot_download
+
+    print(f"Downloading ensemble calibration '{subfolder}' from Hugging Face...")
+    root = snapshot_download(
+        "chebai/chebifier", repo_type="dataset", allow_patterns=f"{subfolder}/*"
+    )
+    return os.path.join(root, subfolder)
 
 
 def process_config(config, model_registry):
@@ -158,22 +120,56 @@ def process_config(config, model_registry):
     return new_config
 
 
-@functools.lru_cache(maxsize=128)
-def _smiles_to_mol(smiles: str):
-    mol = Chem.MolFromSmiles(smiles, sanitize=False)
-    if mol is not None:
-        # turn aromatic bond types into single/double
-        try:
-            Chem.Kekulize(mol)
-        except Chem.KekulizeException as e:
-            print(f"Failed to Kekulize {smiles}: {e}")
-    return mol
+def to_mol(molecule: str | Chem.Mol):
+    """Molecules reach a predictor either as SMILES/InChI or as RDKit molecules (the evaluation
+    datasets store the latter). Rule-based classifiers expect kekulised molecules, and Kekulize
+    works in place, so a molecule that is not ours to modify is copied first."""
+    if not isinstance(molecule, Chem.Mol):
+        molecule = smiles_or_inchi_to_mol(molecule)
+        if molecule is None:
+            return None
+    else:
+        molecule = Chem.Mol(molecule)
+    try:
+        Chem.Kekulize(molecule)
+    except Chem.KekulizeException as e:
+        print(f"Failed to Kekulize {Chem.MolToSmiles(molecule)}: {e}")
+    return molecule
 
 
-if __name__ == "__main__":
-    chebi_graph = build_chebi_graph(chebi_version=244)
-    os.makedirs(os.path.join("data", "chebi_v244"), exist_ok=True)
-    pickle.dump(
-        chebi_graph,
-        open(os.path.join("data", "chebi_v244", "chebi_graph.pkl"), "wb"),
-    )
+def to_smiles(molecule: str | Chem.Mol) -> str:
+    return Chem.MolToSmiles(molecule) if isinstance(molecule, Chem.Mol) else molecule
+
+
+@functools.lru_cache(maxsize=2)
+def _isa_graph(chebi_graph):
+    return get_hierarchy_subgraph(chebi_graph)
+
+
+@functools.lru_cache(maxsize=None)
+def get_superclasses(chebi_graph, chebi_id: str) -> tuple[str, ...]:
+    """All transitive superclasses of a ChEBI class.
+
+    is-a edges point from child to parent, and the graph also carries non-subsumption relations
+    (has role, conjugate acid/base, ...), so the superclasses of a node are neither its
+    predecessors nor all of its successors.
+    """
+    isa_graph = _isa_graph(chebi_graph)
+    if chebi_id not in isa_graph:
+        return ()
+    return tuple(str(cls) for cls in nx.descendants(isa_graph, chebi_id))
+
+
+def labels_from_graph(chebi_ids, classes, chebi_graph) -> np.ndarray:
+    cls_to_idx = {str(cls): idx for idx, cls in enumerate(classes)}
+    labels = np.zeros((len(chebi_ids), len(classes)), dtype=bool)
+    for row, chebi_id in enumerate(chebi_ids):
+        chebi_id = str(chebi_id)
+        # a molecule is a member of its own class, which is not among its superclasses
+        columns = [
+            cls_to_idx[cls]
+            for cls in (chebi_id,) + get_superclasses(chebi_graph, chebi_id)
+            if cls in cls_to_idx
+        ]
+        labels[row, columns] = True
+    return labels

@@ -2,7 +2,9 @@ import csv
 import os
 from pathlib import Path
 
+import networkx as nx
 import torch
+from chebi_utils.obo_extractor import get_hierarchy_subgraph
 
 
 def get_disjoint_groups(disjoint_files):
@@ -26,18 +28,16 @@ def get_disjoint_groups(disjoint_files):
                     if seg.startswith("rdf:Description ") or seg.startswith(
                         "owl:Class"
                     ):
-                        left = int(seg.split('rdf:about="&obo;CHEBI_')[1].split('"')[0])
+                        left = seg.split('rdf:about="&obo;CHEBI_')[1].split('"')[0]
                     elif seg.startswith("owl:disjointWith"):
-                        right = int(
-                            seg.split('rdf:resource="&obo;CHEBI_')[1].split('"')[0]
-                        )
+                        right = seg.split('rdf:resource="&obo;CHEBI_')[1].split('"')[0]
                         disjoint_pairs.append([left, right])
 
                 disjoint_groups = []
                 for seg in plaintext.split("<rdf:Description>"):
                     if "owl;AllDisjointClasses" in seg:
                         classes = seg.split('rdf:about="&obo;CHEBI_')[1:]
-                        classes = [int(c.split('"')[0]) for c in classes]
+                        classes = [c.split('"')[0] for c in classes]
                         disjoint_groups.append(classes)
         else:
             raise NotImplementedError(
@@ -47,44 +47,169 @@ def get_disjoint_groups(disjoint_files):
     disjoint_all = disjoint_pairs + disjoint_groups
     # one disjointness is commented out in the owl-file
     # (the correct way would be to parse the owl file and notice the comment symbols, but for this case, it should work)
-    if [22729, 51880] in disjoint_all:
-        disjoint_all.remove([22729, 51880])
+    if ["22729", "51880"] in disjoint_all:
+        disjoint_all.remove(["22729", "51880"])
     # print(f"Found {len(disjoint_all)} disjoint groups")
     return disjoint_all
 
 
-class PredictionSmoother:
-    """Removes implication and disjointness violations from predictions"""
+NEUTRAL = 0.5
+
+
+def confidence(scores, threshold):
+    """How far a score sits from the decision threshold, scaled separately on each side so that a
+    maximally confident negative and a maximally confident positive both count 1.
+
+    The raw distance is not comparable across the two sides once the threshold leaves NEUTRAL: at
+    threshold 0.2 the positive side spans 0.8 and the negative side only 0.2, so the positive side
+    would win almost every comparison.
+    """
+    return torch.where(
+        scores < threshold,
+        (threshold - scores) / threshold,
+        (scores - threshold) / (1 - threshold),
+    )
+
+
+def seed_uncovered(preds, valid_mask, fill=NEUTRAL):
+    if valid_mask is None:
+        return preds
+    return torch.where(valid_mask, preds, torch.full_like(preds, fill))
+
+
+def densified_exclusion_matrix(label_names, label_successors, disjoint_groups):
+    label_index = {label: i for i, label in enumerate(label_names)}
+    succ = label_successors[0] if label_successors.dim() == 3 else label_successors
+    n = succ.shape[0]
+    excl = torch.zeros((n, n), dtype=torch.bool)
+    for group in disjoint_groups:
+        members = [label_index[g] for g in group if g in label_index]
+        for gi in range(len(members)):
+            for gj in range(gi + 1, len(members)):
+                subs_a = succ[:, members[gi]]
+                subs_b = succ[:, members[gj]]
+                block = subs_a.unsqueeze(1) & subs_b.unsqueeze(0)
+                excl |= block | block.T
+    excl.fill_diagonal_(False)
+    return excl
+
+
+def densified_exclusion_pairs(label_names, label_successors, disjoint_groups):
+    excl = densified_exclusion_matrix(label_names, label_successors, disjoint_groups)
+    return torch.nonzero(torch.triu(excl), as_tuple=False)
+
+
+def get_smoother_class(name):
+    from chebifier.hex_bounded import BoundedHexSmoother
+    from chebifier.ilr import GodelILRSmoother, LukasiewiczILRSmoother
+
+    smoothers = {
+        "score-based": ScoreBasedPredictionSmoother,
+        "ilr-godel": GodelILRSmoother,
+        "ilr-lukasiewicz": LukasiewiczILRSmoother,
+        "hex": BoundedHexSmoother,
+    }
+    if name not in smoothers:
+        raise ValueError(
+            f"Unknown inconsistency resolution method '{name}'. "
+            f"Available: {', '.join(smoothers)}"
+        )
+    return smoothers[name]
+
+
+SMOOTHER_NAMES = [
+    "score-based",
+    "ilr-godel",
+    "ilr-lukasiewicz",
+    "hex",
+]
+
+
+class ScoreBasedPredictionSmoother:
+    """Removes implication and disjointness violations from predictions.
+
+    Predictions are probabilities in [0, 1]: a class is predicted when its probability exceeds
+    `threshold`, the ensemble's decision threshold, which is also the point a suppressed class is
+    pushed to. Ensembles that calibrate their own operating point report it as
+    `BaseEnsemble.decision_threshold`; leaving `threshold` at NEUTRAL when the decision is taken
+    somewhere else lets suppressed classes stay above the decision boundary.
+
+    Implication violations are resolved by score: for A subclassOf B where score(A) > score(B),
+    either set score(B) = max(score(B), score(A)) if A is the more confident of the two, or set
+    score(A) = min(score(A), score(B)) otherwise.
+    """
 
     def __init__(
-        self, chebi_graph, label_names=None, disjoint_files=None, verbose=False
+        self,
+        chebi_graph,
+        label_names=None,
+        disjoint_files=None,
+        verbose=False,
+        threshold=NEUTRAL,
     ):
         self.chebi_graph = chebi_graph
         self.set_label_names(label_names)
         self.disjoint_groups = get_disjoint_groups(disjoint_files)
         self.verbose = verbose
+        self.threshold = threshold
 
     def set_label_names(self, label_names):
         if label_names is not None:
             self.label_names = label_names
-            chebi_subgraph = self.chebi_graph.subgraph(self.label_names)
+            # the ChEBI graph also contains non-subsumption relations (has role, conjugate
+            # acid/base, has functional parent, ...) which are not implications
+            isa_graph = get_hierarchy_subgraph(self.chebi_graph)
+            label_index = {label: i for i, label in enumerate(self.label_names)}
             self.label_successors = torch.zeros(
                 (len(self.label_names), len(self.label_names)), dtype=torch.bool
             )
             for i, label in enumerate(self.label_names):
                 self.label_successors[i, i] = 1
-                for p in chebi_subgraph.successors(label):
-                    if p in self.label_names:
-                        self.label_successors[i, self.label_names.index(p)] = 1
+                if label not in isa_graph:
+                    continue
+                # transitive closure: superclasses can be connected via intermediate
+                # classes that are not themselves labels
+                for p in nx.descendants(isa_graph, label):
+                    if p in label_index:
+                        self.label_successors[i, label_index[p]] = 1
             self.label_successors = self.label_successors.unsqueeze(0)
 
-    def resolve_subsumption_violations(self, preds):
-        preds = preds.unsqueeze(1)
-        preds_masked_succ = torch.where(self.label_successors, preds, 0)
-        # preds_masked_succ shape: (n_samples, n_labels, n_labels)
-        return preds_masked_succ.max(dim=2).values
+    def _inherit(self, attribution, source, changed):
+        """A class whose score was taken from another class inherits that class' attribution:
+        whoever drove the donor's score is the reason this class ended up where it did. Classes
+        whose score survived the step keep their own attribution.
+        """
+        if attribution is None:
+            return None
+        gathered = torch.gather(
+            attribution, 1, source.unsqueeze(-1).expand(-1, -1, attribution.shape[2])
+        )
+        return torch.where(changed.unsqueeze(-1), gathered, attribution)
 
-    def resolve_disjointness_violations(self, preds):
+    def resolve_subsumption_violations(self, preds, attribution=None):
+        preds_orig = preds
+        preds = preds.unsqueeze(1)
+        # label_successors[i, j] means j is a superclass of i, so raising a class to the score of its
+        # subclasses means taking the max over its predecessors (and vice versa for lowering it).
+        preds_masked_predec = torch.where(
+            torch.transpose(self.label_successors, 1, 2), preds, -torch.inf
+        )
+        preds_optimistic, source_optimistic = preds_masked_predec.max(dim=2)
+        preds_masked_succ = torch.where(self.label_successors, preds, torch.inf)
+        preds_pessimistic, source_pessimistic = preds_masked_succ.min(dim=2)
+        # take whichever the ensemble is more confident about
+        preds_direction = confidence(preds_optimistic, self.threshold) > confidence(
+            preds_pessimistic, self.threshold
+        )
+        resolved = torch.where(preds_direction, preds_optimistic, preds_pessimistic)
+        attribution = self._inherit(
+            attribution,
+            torch.where(preds_direction, source_optimistic, source_pessimistic),
+            resolved != preds_orig,
+        )
+        return resolved, attribution
+
+    def resolve_disjointness_violations(self, preds, attribution=None):
         preds_sum_orig = torch.sum(preds)
 
         for disj_group in self.disjoint_groups:
@@ -92,65 +217,54 @@ class PredictionSmoother:
                 self.label_names.index(g) for g in disj_group if g in self.label_names
             ]
             if len(disj_group) > 1:
-                disj_max = torch.max(preds[:, disj_group], dim=1)
-                for i, row in enumerate(preds):
-                    for l_ in range(len(preds[i])):
-                        if l_ in disj_group and l_ != disj_group[disj_max.indices[i]]:
-                            preds[i, l_] = 0
+                group_preds = preds[:, disj_group]
+                keep = torch.zeros_like(group_preds, dtype=torch.bool)
+                winner = group_preds.argmax(dim=1)
+                keep[torch.arange(group_preds.shape[0]), winner] = True
+                resolved = torch.where(
+                    keep, group_preds, group_preds.clamp(max=self.threshold)
+                )
+                if attribution is not None:
+                    # a class pushed down by a disjoint sibling is there because of whoever
+                    # asserted that sibling, so it takes over the winner's attribution
+                    group_attribution = attribution[:, disj_group]
+                    winner_attribution = group_attribution[
+                        torch.arange(group_preds.shape[0]), winner
+                    ].unsqueeze(1)
+                    attribution[:, disj_group] = torch.where(
+                        (resolved != group_preds).unsqueeze(-1),
+                        winner_attribution,
+                        group_attribution,
+                    )
+                preds[:, disj_group] = resolved
         if self.verbose and torch.sum(preds) != preds_sum_orig:
             print(f"Preds change (step 2): {torch.sum(preds) - preds_sum_orig}")
         preds_sum_orig = torch.sum(preds)
-        # step 3: disjointness violation removal may have caused new implication inconsistencies -> set each prediction to min of predecessors
+        # step 3: disjointness violation removal may have caused new implication inconsistencies -> set each prediction to min of superclasses
+        preds_orig = preds
         preds = preds.unsqueeze(1)
-        preds_masked_predec = torch.where(
-            torch.transpose(self.label_successors, 1, 2), preds, 1
-        )
-        preds = preds_masked_predec.min(dim=2).values
+        preds_masked_succ = torch.where(self.label_successors, preds, torch.inf)
+        preds, source = preds_masked_succ.min(dim=2)
+        attribution = self._inherit(attribution, source, preds != preds_orig)
         if self.verbose and torch.sum(preds) != preds_sum_orig:
             print(f"Preds change (step 3): {torch.sum(preds) - preds_sum_orig}")
-        return preds
+        return preds, attribution
 
-    def __call__(self, preds):
+    def __call__(self, preds, valid_mask=None, attribution=None):
+        """With `attribution` - a (n_samples, n_labels, n_models) tensor whose rows sum to 1 -
+        the attribution is carried through the resolution alongside the scores and returned as a
+        second element."""
         if preds.shape[1] == 0:
             # no labels predicted
-            return preds
+            return preds if attribution is None else (preds, attribution)
         # preds shape: (n_samples, n_labels)
+        preds = seed_uncovered(preds, valid_mask, self.threshold)
         preds_sum_orig = torch.sum(preds)
         # step 1: apply implications: for each class, set prediction to max of itself and all successors
-        preds = self.resolve_subsumption_violations(preds)
+        preds, attribution = self.resolve_subsumption_violations(preds, attribution)
 
         if self.verbose and torch.sum(preds) != preds_sum_orig:
             print(f"Preds change (step 1): {torch.sum(preds) - preds_sum_orig}")
-        # step 2: eliminate disjointness violations: for group of disjoint classes, set all except max to 0.49 (if it is not already lower)
-        preds = self.resolve_disjointness_violations(preds)
-        return preds
-
-
-class PessimisticPredictionSmoother(PredictionSmoother):
-    """Always assumes the positive prediction is wrong (in case of implication violations)"""
-
-    def resolve_subsumption_violations(self, preds):
-        preds = preds.unsqueeze(1)
-        preds_masked_predec = torch.where(
-            torch.transpose(self.label_successors, 1, 2), preds, 1
-        )
-        preds = preds_masked_predec.min(dim=2).values
-        return preds
-
-
-class ScoreBasedPredictionSmoother(PredictionSmoother):
-    """Removes implication violations from predictions based on net scores: for A subclassOf B where score(A) > score(B), either set score(B) = max(score(B), score(A))
-    if abs(score(A)) > abs(score(B)) or set score(A) = min(score(A), score(B)) otherwise.
-    """
-
-    def resolve_subsumption_violations(self, preds):
-        preds = preds.unsqueeze(1)
-        preds_masked_succ = torch.where(self.label_successors, preds, 0)
-        preds_optimistic = preds_masked_succ.max(dim=2).values
-        preds_masked_predec = torch.where(
-            torch.transpose(self.label_successors, 1, 2), preds, 1
-        )
-        preds_pessimistic = preds_masked_predec.min(dim=2).values
-        # take the one with the higher absolute value
-        preds_direction = preds_optimistic - preds_pessimistic > 0
-        return torch.where(preds_direction, preds_optimistic, preds_pessimistic)
+        # step 2: eliminate disjointness violations: for group of disjoint classes, set all except max to 0 (if it is not already lower)
+        preds, attribution = self.resolve_disjointness_violations(preds, attribution)
+        return preds if attribution is None else (preds, attribution)

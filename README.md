@@ -8,8 +8,13 @@ A web application for Chebifier is available at https://chebifier.hastingslab.or
 
 You can get the package from PyPI:
 ```bash
+pip install chebifier[models]
+```
+If you want the barebones Chebifier without the base learners, run
+```bash
 pip install chebifier
 ```
+(This is useful if you only need a subset of )
 
 or get the latest development version from GitHub:
 ```bash
@@ -38,40 +43,49 @@ pip install torch==2.12.0 torch_scatter torch_geometric -f https://data.pyg.org/
 
 The package provides a command-line interface (CLI) for making predictions using an ensemble model.
 
-The ensemble configuration is given by a configuration file (by default, this is `chebifier/ensemble.yml`). If you
-want to change which models are included in the ensemble or how they are weighted, you can create your own configuration file.
+The ensemble configuration is selected with `--ensemble-config`: `eval` or `web` (both downloaded from
+[Hugging Face](https://huggingface.co/datasets/chebai/chebifier), `eval` is the default) or a path to your own
+configuration file. Create your own file to change which models are included in the ensemble or how they are weighted.
 
 Trained deep learning models are automatically downloaded from [Hugging Face](https://huggingface.co/chebai).
 To access a model from Hugging face, add the `load_model` key in your configuration file. For example:
 
 ```yaml
-my_electra:
-  type: electra
-  load_model: "electra_chebi50-3star_v244"
+my_gat:
+  type: gat
+  load_model: "gat-aug_chebi25-3star_v252"
 ```
 
 ### Available model weights:
 
-* `resgated-aug_chebi50-3star_v244`
-* `gat-aug_chebi50_v244`
-* `electra_chebi50-3star_v244`
-* `gat_chebi50_v244`
-* `electra_chebi50_v241`
-* `resgated_chebi50_v241`
+* `gat-aug_chebi25-3star_v252`
+* `gat_chebi25-3star_v252`
+* `gat-aug_chebi25_v252`
+* `gat_chebi25_v252`
+* `resgated-aug_chebi25-3star_v252`
+* `resgated_chebi25-3star_v252`
+* `resgated-aug_chebi25_v252`
+* `resgated_chebi25_v252`
 * `c3p_with_weights`
 
 
 You can also supply your own model checkpoints (see `configs/example_config.yml` for an example).
 
+The base learners are selected with `-e`/`--ensemble-config` (default `eval`). The deep learning
+base learners and the ensemble's calibration for the standard `eval`/`web` configs are downloaded
+from Hugging Face automatically on first use. To use a calibration of your own (e.g. one you built
+yourself, see below), pass its directory with `-d`/`--ensemble-dir`.
+
 ```bash
-# Make predictions
-python -m chebifier predict --smiles "CC(=O)OC1=CC=CC=C1C(=O)O" --smiles "C1=CC=C(C=C1)C(=O)O"
+# Predict for one or more SMILES / InChI strings (default config: eval)
+python -m chebifier predict -m "CC(=O)OC1=CC=CC=C1C(=O)O" -m "C1=CC=C(C=C1)C(=O)O"
 
-# Make predictions using SMILES from a file
-python -m chebifier predict --smiles-file smiles.txt
+# Predict for molecules listed in a file (one SMILES / InChI per line)
+python -m chebifier predict -f smiles.txt
 
-# Make predictions using a configuration file
-python -m chebifier predict --ensemble-config configs/my_config.yml --smiles-file smiles.txt
+# Use the web ensemble, or your own configuration file
+python -m chebifier predict -e web -m "CC(=O)O"
+python -m chebifier predict -e configs/my_config.yml -f smiles.txt
 
 # Get all available options
 python -m chebifier predict --help
@@ -82,23 +96,61 @@ python -m chebifier predict --help
 You can use the package programmatically as well:
 
 ```python
-from chebifier import BaseEnsemble
+from chebifier.cli import build_base_learners, build_ensemble_model
+from chebifier.predict import predict
+from chebifier.utils import download_ensemble_calibration
 
-# Instantiate ensemble model. Optionally, you can pass
-# a path to a configuration, like 'configs/example_config.yml'
-ensemble = BaseEnsemble()
+# Base learners from the "eval" config ("web" or a path to your own config also work).
+base_learners = build_base_learners("eval")
+# download_ensemble_calibration() fetches the standard calibration from Hugging Face; pass your own
+# directory instead to use a calibration you built yourself.
+ensemble = build_ensemble_model("wmv-f1", download_ensemble_calibration(), "eval")
 
-# Make predictions
 smiles_list = ["CC(=O)OC1=CC=CC=C1C(=O)O", "C1=CC=C(C=C1)C(=O)O"]
-predictions = ensemble.predict_smiles_list(smiles_list)
+result = predict(base_learners, ensemble, smiles_list)
 
-# Print results
-for smiles, prediction in zip(smiles_list, predictions):
+# result["predicted_classes"] is the class column space; result["class_decisions"][i] is the
+# per-class boolean decision for molecule i.
+for i, smiles in enumerate(smiles_list):
+    classes = [
+        cls
+        for cls, keep in zip(result["predicted_classes"], result["class_decisions"][i].tolist())
+        if keep
+    ]
     print(f"SMILES: {smiles}")
-    if prediction:
-        print(f"Predicted classes: {prediction}")
-    else:
-        print("No predictions")
+    print(f"Predicted classes: {classes}" if classes else "No predictions")
+```
+
+### Ensemble strategies and inconsistency resolution
+
+The strategy that turns the base learner predictions into one ensemble decision is chosen with
+`-t`/`--ensemble-type`:
+
+- `mv` — plain majority vote, every model counts equally.
+- `wmv-conf` — majority vote weighted by each model's self-reported confidence.
+- `wmv-f1` — confidence weighting plus a per-class trust from each model's validation F1 (the default).
+- `ltr` — a learning-to-rank meta-model (LambdaMART) fitted on the validation split.
+- `des` — dynamic ensemble selection: per molecule, only the locally most competent models vote.
+
+After a decision has been made for each class, the predictions are reconciled with the ChEBI
+hierarchy and its disjointness axioms. The method is chosen with `-ir`/`--inconsistency-resolution`
+(or disabled with `--no-resolve-inconsistencies`):
+
+- `score-based` — a confidence-based repair of hierarchy and disjointness violations (the default).
+- `ilr-godel`, `ilr-lukasiewicz` — iterative local refinement, repairing violations by fuzzy logic.
+- `hex` — HEX-graph constrained inference (a bounded approximation).
+
+Both are described in more detail in [The ensemble](#the-ensemble) and
+[Inconsistency resolution](#inconsistency-resolution) below.
+
+### Building your own ensemble
+
+To run a new set of models or calibrate on your own data, build an ensemble on the ChEBI validation
+split. This writes the calibration (prediction thresholds, class-wise F1 scores, hyperparameters)
+into the ensemble directory, which `predict` and `evaluate` then read via `-d`:
+
+```bash
+python -m chebifier build -e configs/my_config.yml -t wmv-f1 -d my_ensemble --data-path <dataset>
 ```
 
 ### The models
@@ -145,29 +197,115 @@ $$
 $$
 -->
 
-Here, confidence is the model's (self-reported) confidence in its prediction, calculated as
+Here, confidence is the model's (self-reported) confidence in its prediction. Each model has its own
+decision threshold $t_{m_i}$, calibrated on the validation set (see below), and confidence measures
+how far the prediction sits from that threshold — scaled separately on each side, so that a
+maximally confident negative ($p = 0$) and a maximally confident positive ($p = 1$) both count 1:
 $
-\text{confidence}_c^{m_i} = 2|p_c^{m_i} - 0.5|
+\text{confidence}_c^{m_i} = \begin{cases}
+(t_{m_i} - p_c^{m_i}) / t_{m_i} & \text{if } p_c^{m_i} < t_{m_i} \\
+(p_c^{m_i} - t_{m_i}) / (1 - t_{m_i}) & \text{otherwise}
+\end{cases}
 $
-For example, if a model makes a positive prediction with $p_c^{m_i} = 0.55$, the confidence is $2|0.55 - 0.5| = 0.1$.
-One could say that the model is not very confident in its prediction and very close to switching to a negative prediction.
-If another model is very sure about its negative prediction with $p_c^{m_j} = 0.1$, the confidence is $2|0.1 - 0.5| = 0.8$.
-Therefore, if in doubt, we are more confident in the negative prediction.
+For example, for a model with $t_{m_i} = 0.5$ and a positive prediction of $p_c^{m_i} = 0.55$, the
+confidence is $(0.55 - 0.5)/0.5 = 0.1$. One could say that the model is not very confident in its
+prediction and very close to switching to a negative prediction. If another model is very sure about
+its negative prediction with $p_c^{m_j} = 0.1$ (and $t_{m_j} = 0.5$), the confidence is
+$(0.5 - 0.1)/0.5 = 0.8$. Therefore, if in doubt, we are more confident in the negative prediction.
 
-Confidence can be disabled by the `use_confidence` parameter of the predict method (default: True).
+The two-sided scaling matters whenever a model's threshold is not 0.5: with $t_{m_i} = 0.2$, a
+negative prediction only has a range of $0.2$ to move in and a positive one a range of $0.8$, so
+without rescaling the positive side would systematically outweigh the negative side.
+
+Confidence is used by the weighted voting ensembles (`wmv-conf` and `wmv-f1`). If the `ensemble_type`
+is set to `mv`, all votes count the same (confidence is fixed to 1), which gives an unweighted
+majority-voting baseline.
 
 The`model_weight` can be set for each model in the configuration file (default: 1). This is used to favor a certain
 model independently of a given class.
 `Trust` is based on the model's performance on a validation set. After training, we evaluate the Machine Learning models
 on a validation set for each class. If the `ensemble_type` is set to `wmv-f1`, the trust is calculated as F1-score $^{6.25}$.
-If the `ensemble_type` is set to `mv` (the default), the trust is set to 1 for all models.
+For `mv` and `wmv-conf`, the trust is set to 1 for all models.
+
+#### Learned aggregation (`ltr` and `des`)
+
+Two further `ensemble_type`s replace the fixed voting rule by a model that is fitted on the
+validation split. Both restrict themselves to a candidate set (per molecule, the union of each
+base learner's top-`candidate_k` classes) and both emit the same net score as the voting
+ensembles, so inconsistency resolution and the decision threshold apply unchanged.
+
+- `ltr` — **learning to rank**, an adaptation of
+  [GOLabeler](https://doi.org/10.1093/bioinformatics/bty130): the base learner scores for a
+  (molecule, class) pair become the feature vector of a LambdaMART ranker (LightGBM) that ranks
+  ChEBI classes per molecule. Features are the raw base learner scores plus the number of covering
+  models and the max/mean/std over them; a global cutoff on the ranker score is calibrated on a
+  held-out 20% of the validation split. Feature column *j* is always base learner *j*, so the
+  ranker can learn which model to trust — but the raw scores say nothing about the class being
+  scored. `class_stats` (on by default) adds that: one column per base learner holding its
+  validation F1 *for this class* (the same quantity `wmv-f1` weights by), plus the class prevalence
+  and its number of positives. To keep the labels of the scored molecules out of the features, the
+  statistics used during training are estimated on the training molecules only, while prediction
+  uses the statistics of the whole validation split. Set `class_stats=False` for the plain
+  GOLabeler feature set; that also skips the per-model threshold calibration the F1 scores need.
+- `des` — **dynamic ensemble selection**, an adaptation of
+  [META-DES.H](https://arxiv.org/pdf/1811.01742): a `GaussianNB` meta-classifier estimates, per
+  (molecule, class, base learner), how competent that base learner is *for this molecule*, and only
+  the competent ones vote, weighted by that competence. Competence is described by the paper's five
+  meta-feature sets over two neighbourhoods — the `region_size` nearest molecules by Tanimoto
+  similarity on ECFP4, and the `profile_size` nearest output profiles. Because the neighbourhoods
+  are looked up at prediction time, calibration stores the reference predictions, labels and
+  fingerprints in the ensemble directory (~1 GB for a 20-model ensemble on ChEBI50).
+  The meta-features are otherwise purely behavioural — one meta-classifier is fitted over all
+  (molecule, class, base learner) rows pooled, and the paper's input identifies neither the base
+  learner nor the class, so competence is a function of local track record alone. `use_model_id`
+  (on by default) appends a one-hot encoding of the base learner, which lets the meta-classifier
+  express "model A is the stronger one here" instead of only "whichever model this is, it behaves
+  like *this*"; `use_model_id=False` restores the published feature set.
+  `meta_classifier="mlp"` replaces `GaussianNB` with a standardised two-layer `MLPClassifier`,
+  which drops the feature-independence assumption — a poor fit for these meta-features, since the
+  `region_size` correctness flags are strongly correlated with each other and with their own mean.
+  The MLP is fitted in one pass over the meta-training set rather than chunk-wise, which the
+  consensus filter keeps small (~130k rows for 8 base learners on ChEBI25 3-STAR);
+  `max_meta_samples` caps it if a larger ensemble overflows memory.
+  Two further options control the reference set rather than the meta-classifier.
+  `morgan_radius` / `morgan_bits` / `morgan_chirality` set the fingerprint the region of competence
+  is measured on. Plain ECFP4 cannot separate stereoisomers, which are distinct ChEBI classes, so
+  6.6% of ChEBI25 3-STAR validation molecules share a fingerprint with one carrying different
+  labels; `morgan_chirality` is therefore on by default, which halves that to 3.9%. Widening
+  `morgan_bits` changes nothing — the degeneracy is structural, not hash collisions.
+  `full_dsel=True` stores the whole validation split as the reference set instead of only the 80%
+  that the meta-classifier is fitted on, for denser neighbourhoods at prediction time.
+
+  Note that the region of competence excludes the query molecule itself during calibration but
+  not during prediction, where the query is genuinely unseen. Predicting for the validation split
+  therefore lets ~80% of molecules retrieve themselves as their own nearest neighbour, which makes
+  any validation-split metric for `des` optimistic. Use the test split.
+
+Both calibrate their hyperparameters by 5-fold cross-validation on the validation split, scoring
+macro-F1 on each held-out fold (the cutoff is tuned on a fold-internal dev set, so the reported
+score is not tuned on the fold it is measured on). Only the parameters that moved the result in
+previous experiments are searched: `candidate_k` for `ltr`, and `region_size` / `profile_size` /
+`vote` for `des`. The ranker's own tree hyperparameters, and `des`'s consensus and competence
+thresholds, sit on a plateau and are left at their published values. Passing any searched parameter
+to the constructor skips the search for it — `chebifier build` takes constructor arguments as
+`-ep key=value`, e.g.
+`-ep candidate_k=70 -ep class_stats=1` or `-ep region_size=7 -ep meta_classifier=mlp`. Arguments
+that change the stored model are recorded in the ensemble's metadata, so `chebifier evaluate` picks
+them up on its own. `scripts/reproduce_ablation_3star.ps1` compares the optional features above
+against their baselines this way. Results are written to `hyperparameter_search.csv` and
+`best_hyperparameters.csv` in the ensemble directory, as for `wmv-f1`.
 
 ### Inconsistency resolution
 After a decision has been made for each class independently, the consistency of the predictions with regard to the ChEBI hierarchy
 and disjointness axioms is checked. This is
 done in 3 steps:
 - (1) First, the hierarchy is corrected. For each pair of classes $A$ and $B$ where $A$ is a subclass of $B$ (following
-the is-a relation in ChEBI), we set the ensemble prediction of $A$ to $0$ if the _absolute value_ of $B$'s score is large than that of $A$. For example, if $A$ has a net score of $3$ and $B$ has a net score of $-4$, the ensemble will set $A$ to $0$ (i.e., predict neither $A$ nor $B$).
+the is-a relation in ChEBI), we set the ensemble prediction of $A$ to that of $B$ if $B$ is the more
+_confident_ of the two, and $B$ to that of $A$ otherwise. Confidence is the distance from the decision
+threshold, scaled separately on each side of it so that a maximally confident negative and a maximally
+confident positive both count $1$ — the same measure `wmv-conf` weights its votes by. For example, if
+$A$ scores $0.6$ and $B$ scores $0.1$ at a threshold of $0.5$, $B$ is the more confident one
+($0.8$ against $0.2$), so $A$ is lowered to $0.1$ and neither class is predicted.
 - (2) Next, we check for disjointness. This is not specified directly in ChEBI, but in an additional ChEBI module ([chebi-disjoints.owl](https://ftp.ebi.ac.uk/pub/databases/chebi/ontology/)).
 We have extracted these disjointness axioms into a CSV file and added some more disjointness axioms ourselves (see
 `data>disjoint_chebi.csv` and `data>disjoint_additional.csv`). If two classes $A$ and $B$ are disjoint and we predict
@@ -176,3 +314,58 @@ both, we select one with the higher class score and set the other to 0.
 with a small change. For a pair of classes $A \subseteq B$ with predictions $1$ and $0$, instead of setting $B$ to $1$,
 we now set $A$ to $0$. This has the advantage that we cannot introduce new disjointness-inconsistencies and don't have
 to repeat step 2.
+
+#### Alternative methods
+
+The method above is `--inconsistency-resolution score-based` (`-ir`, the default). Two alternative
+families from the literature are available at the same point in the pipeline; all of them consume a
+net score and return a net score, so the decision threshold applies unchanged. Scores are
+probabilities in $[0, 1]$, with $0.5$ meaning "undecided"; the decision itself is made at the
+operating point the ensemble reports as `decision_threshold`, which is not always $0.5$.
+
+- `ilr-godel`, `ilr-lukasiewicz` — **Iterative Local Refinement**
+  ([Daniele et al. 2023](https://doi.org/10.1007/s10994-023-06310-3)). Subsumption becomes the
+  implication $A \rightarrow B$ and disjointness the formula $\neg (A \wedge B)$, both as hard
+  constraints ($\hat t = 1$). Each constraint is repaired by its *minimal refinement function* —
+  the closest truth vector satisfying it — and the repairs are iterated to a fixpoint instead of
+  running the fixed 3-step schedule above. The two variants differ in how they split a violation:
+  Gödel is winner-take-all (it raises the parent to the child, and zeroes the weaker side of a
+  disjoint pair), whereas Łukasiewicz shares the correction — a disjointness violation with scores
+  $0.8$ and $0.7$ becomes $0.55$ and $0.45$ rather than $0.8$ and $0$.
+- `hex` — **HEX graphs**
+  ([Deng et al. 2014](https://doi.org/10.1007/978-3-319-10590-1_4)). A CRF over binary label
+  vectors in which hierarchy edges forbid $(B, A) = (0, 1)$ and exclusion edges forbid
+  $(1, 1)$. Illegal states have probability zero, so the marginals satisfy
+  $P(A) \le P(B)$ for $A \subseteq B$ and $P(A) + P(B) \le 1$ for disjoint $A, B$ by construction.
+
+`ilr-godel` and `ilr-lukasiewicz` are tuned with `alpha`, `max_iter` and `tol`, passed as
+`-irp alpha=0.5`. `scripts/calibrate_resolution.py` grid-searches resolution parameters against a
+validation split; the grid per method is defined in its `GRIDS` dict. Note that a monotone
+reparametrisation of the scores cannot change `ilr-godel`'s decisions: every Gödel operation is
+order-preserving, so it cannot move a score across the boundary.
+
+#### Why HEX needs an approximation
+
+Applied as published, HEX inference is intractable here. Its cost is bounded by
+$O(\min(|V|2^w, |V|2^{\Omega}))$, and on a 2117-class ChEBI label set the maximum overlap is
+$\Omega = 2115$ and the junction tree width is $\le 62$, with over 5 million legal states in the
+largest cliques — the paper's efficiency argument assumes labels are mostly mutually exclusive,
+whereas ChEBI labels overwhelmingly overlap (~25 classes hold per molecule). Exact junction-tree
+inference is therefore not an option at this scale, so `hex` deviates from the published method;
+this should be reported as such.
+
+`hex` (`chebifier/hex_bounded.py`) replaces exact inference with a **branch-and-bound over partial
+assignments**. Each search node fixes some labels on and some off, leaving the rest free, and
+yields an interval $[\mathrm{lb}, \mathrm{ub}]$ that provably brackets every label's true marginal.
+Fixing a label propagates through hierarchy and exclusion edges to a fixpoint, so infeasible
+branches are pruned immediately. The node with the largest slack is expanded first, for at most
+`budget` expansions (default 2000). If the search exhausts the frontier within that budget the
+intervals collapse and the result is exact; otherwise they stay open and the bounds remain valid
+but loose. Search also stops early once every label's interval lies entirely on one side of the
+decision threshold, since further refinement cannot change any decision.
+
+The smoother returns the **lower** bound. A label whose interval still straddles the threshold is
+therefore decided negative — ties go against predicting the class — and the number of such
+labels is accumulated in `n_uncertified`. Pass `budget` and `processes` (molecules are bounded in
+parallel across a worker pool) with `-irp budget=4000`. `threshold` defaults to the ensemble's
+operating point and only needs to be set explicitly to override it.

@@ -2,11 +2,12 @@ import json
 import os
 from typing import Optional
 
+from chebi_utils.read_molecule import smiles_or_inchi_to_mol
 from rdkit import Chem
 
 from chebifier import modelwise_smiles_lru_cache
 from chebifier.prediction_models import BasePredictor
-from chebifier.utils import _smiles_to_mol, load_chebi_graph
+from chebifier.utils import get_superclasses, load_chebi_graph
 
 
 class ChEBILookupPredictor(BasePredictor):
@@ -25,59 +26,58 @@ class ChEBILookupPredictor(BasePredictor):
         )
         self.chebi_version = chebi_version
         self.chebi_graph = kwargs.get("chebi_graph", load_chebi_graph())
-        self.lookup_table = self.get_smiles_lookup()
+        self.lookup_table = self.get_inchikey_lookup()
 
-    def get_smiles_lookup(self):
+    def get_inchikey_lookup(self):
         path = os.path.join(
-            "data", f"chebi_v{self.chebi_version}", "smiles_lookup.json"
+            "data", f"chebi_v{self.chebi_version}", "inchikey_lookup.json"
         )
         if not os.path.exists(path):
-            smiles_lookup = self.build_smiles_lookup()
+            inchikey_lookup = self.build_inchikey_lookup()
             with open(path, "w", encoding="utf-8") as f:
-                json.dump(smiles_lookup, f, indent=4)
+                json.dump(inchikey_lookup, f, indent=4)
         else:
-            print("Loading existing SMILES lookup...")
+            print("Loading existing InChIKey lookup...")
             with open(path, "r", encoding="utf-8") as f:
-                smiles_lookup = json.load(f)
-        return smiles_lookup
+                inchikey_lookup = json.load(f)
+        return inchikey_lookup
 
-    def build_smiles_lookup(self):
+    def build_inchikey_lookup(self):
         import networkx as nx
 
-        smiles_lookup = dict()
+        inchikey_lookup = dict()
         for chebi_id, smiles in nx.get_node_attributes(
             self.chebi_graph, "smiles"
         ).items():
             if smiles is not None:
                 try:
-                    mol = _smiles_to_mol(smiles)
+                    mol = smiles_or_inchi_to_mol(smiles)
                     if mol is None:
                         print(
                             f"Failed to parse SMILES {smiles} for ChEBI ID {chebi_id}"
                         )
                         continue
-                    canonical_smiles = Chem.MolToSmiles(mol)
-                    if canonical_smiles not in smiles_lookup:
-                        smiles_lookup[canonical_smiles] = []
-                    # if the canonical SMILES is already in the lookup, append "different interpretation of the SMILES"
-                    smiles_lookup[canonical_smiles].append(
-                        (chebi_id, list(self.chebi_graph.predecessors(chebi_id)))
+                    inchikey = Chem.MolToInchiKey(mol)
+                    if inchikey not in inchikey_lookup:
+                        inchikey_lookup[inchikey] = []
+                    inchikey_lookup[inchikey].append(
+                        (chebi_id, list(get_superclasses(self.chebi_graph, chebi_id)))
                     )
                 except Exception as e:
                     print(
                         f"Failed to parse SMILES {smiles} for ChEBI ID {chebi_id}: {e}"
                     )
-        return smiles_lookup
+        return inchikey_lookup
 
-    def predict_smiles(self, smiles: str) -> Optional[dict]:
+    def predict(self, smiles: str | Chem.Mol) -> Optional[dict]:
         if not smiles:
             return None
-        mol = _smiles_to_mol(smiles)
+        mol = smiles if isinstance(smiles, Chem.Mol) else smiles_or_inchi_to_mol(smiles)
         if mol is None:
             return None
-        canonical_smiles = Chem.MolToSmiles(mol)
-        if canonical_smiles in self.lookup_table:
-            parent_candidates = self.lookup_table[canonical_smiles]
+        inchikey = Chem.MolToInchiKey(mol)
+        if inchikey in self.lookup_table:
+            parent_candidates = self.lookup_table[inchikey]
             preds_i = dict()
             if len(parent_candidates) > 1:
                 print(
@@ -96,10 +96,10 @@ class ChEBILookupPredictor(BasePredictor):
             return None
 
     @modelwise_smiles_lru_cache.batch_decorator
-    def predict_smiles_list(self, smiles_list: list[str]) -> list:
+    def predict_list(self, smiles_list: list[str]) -> list:
         predictions = []
         for smiles in smiles_list:
-            predictions.append(self.predict_smiles(smiles))
+            predictions.append(self.predict(smiles))
 
         return predictions
 
@@ -109,35 +109,51 @@ class ChEBILookupPredictor(BasePredictor):
             return "No description is available for this model."
         return self._description
 
+    def class_name(self, chebi_id) -> Optional[str]:
+        chebi_id = str(chebi_id)
+        if chebi_id not in self.chebi_graph:
+            return None
+        return self.chebi_graph.nodes[chebi_id].get("name")
+
     def explain_smiles(self, smiles: str) -> dict:
-        mol = _smiles_to_mol(smiles)
+        mol = smiles_or_inchi_to_mol(smiles)
         if mol is None:
             return {
+                "chebi_ids": [],
+                "chebi_names": [],
                 "highlights": [
                     (
                         "text",
                         "The input SMILES could not be parsed into a valid molecule.",
                     )
-                ]
+                ],
             }
-        canonical_smiles = Chem.MolToSmiles(mol)
-        if canonical_smiles not in self.lookup_table:
+        inchikey = Chem.MolToInchiKey(mol)
+        if inchikey not in self.lookup_table:
             return {
+                "chebi_ids": [],
+                "chebi_names": [],
                 "highlights": [
                     ("text", "The input SMILES does not match any ChEBI entry.")
-                ]
+                ],
             }
-        parent_candidates = self.lookup_table[canonical_smiles]
+        parent_candidates = self.lookup_table[inchikey]
+        matches = [
+            (str(chebi_id), self.class_name(chebi_id))
+            for chebi_id, _ in parent_candidates
+        ]
         return {
+            "chebi_ids": [chebi_id for chebi_id, _ in matches],
+            "chebi_names": [name for _, name in matches],
             "highlights": [
                 (
                     "text",
-                    f"The ChEBI Lookup matches the canonical version of the input SMILES against ChEBI (v{self.chebi_version})."
-                    f" It found {'1 match' if len(parent_candidates) == 1 else f'{len(parent_candidates)} matches'}:"
-                    f" {', '.join(f'CHEBI:{chebi_id}' for chebi_id, _ in parent_candidates)}. The predicted classes are the"
-                    f" parent classes of the matched ChEBI entries.",
+                    f"The ChEBI Lookup matches the InChIKey of the input structure against ChEBI (v{self.chebi_version})."
+                    f" It found {'1 match' if len(matches) == 1 else f'{len(matches)} matches'}:"
+                    f" {', '.join(f'CHEBI:{cid} ({name})' if name else f'CHEBI:{cid}' for cid, name in matches)}."
+                    f" The predicted classes are the parent classes of the matched ChEBI entries.",
                 )
-            ]
+            ],
         }
 
 
@@ -150,5 +166,5 @@ if __name__ == "__main__":
         "C1=CC=CC=C1",
         "*C(=O)OC[C@H](COP(=O)([O-])OCC[N+](C)(C)C)OC(*)=O",
     ]  # SMILES with 251 matches in ChEBI
-    predictions = predictor.predict_smiles_list(smiles_list)
+    predictions = predictor.predict_list(smiles_list)
     print(predictions)

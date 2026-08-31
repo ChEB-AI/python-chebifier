@@ -2,10 +2,16 @@
 # even if multiple subpackages are imported later.
 
 from ._custom_cache import PerSmilesPerModelLRUCache, modelwise_smiles_lru_cache
-from .ensemble.base_ensemble import BaseEnsemble
+from .ensemble.voting_ensemble import (
+    MajorityVotingEnsemble,
+    VotingEnsemble,
+    WMVwithConfidenceEnsemble,
+)
 
 __all__ = [
-    "BaseEnsemble",
+    "VotingEnsemble",
+    "MajorityVotingEnsemble",
+    "WMVwithConfidenceEnsemble",
     "PerSmilesPerModelLRUCache",
     "modelwise_smiles_lru_cache",
 ]

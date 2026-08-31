@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "chebifier"
-version = "1.2.2"
+version = "1.3.0"
 description = "An AI ensemble model for predicting chemical classes"
 readme = "README.md"
 requires-python = ">=3.9"
@@ -22,8 +22,10 @@ dependencies = [
     "pyyaml",
     "tqdm",
     "rdkit",
+    "chebi-utils>=0.4",
+    "lightgbm", # level-1 ensembles: learning to rank (ltr) and dynamic ensemble selection (des)
+    "scikit-learn",
     "jsonargparse[signatures]==4.27.7",
-    "scikit-learn"
 ]
 
 [tool.setuptools]
@@ -36,10 +38,8 @@ chebifier = ["*.yml"]
 dev = ["black", "isort", "pre-commit"]
 
 models = [
-    "chebai_graph==1.0.0",
-    "chebai==1.2.0",
-    "chemlog-extra==1.0.1",
+    "chebai_graph==1.2.0",
+    "chebai==1.4.0",
+    "chemlog-extra==1.1",  # includes ChemLog / Lopster
     "c3p"
-    # forked version of c3p is windows-compatible
-    #"c3p @ git+https://github.com/sfluegel05/c3p.git"
 ]
