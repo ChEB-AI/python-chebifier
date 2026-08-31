@@ -26,6 +26,17 @@ cd python-chebifier
 pip install -e .
 ```
 
+By default, the models of the ensemble are not installed. 
+You can install them with the `[models]` extra:
+```bash
+pip install chebifier[models]
+```
+
+The Graph Neural Networks depend on `torch_geometric` and `torch_scatter` which you need to install separately ([depending on your CUDA version](https://pytorch-geometric.readthedocs.io/en/latest/install/installation.html)). E.g.
+```bash
+pip install torch==2.12.0 torch_scatter torch_geometric -f https://data.pyg.org/whl/torch-2.12.0+cpu.html
+```
+
 ## Usage
 
 ### Command Line Interface

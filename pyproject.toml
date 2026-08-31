@@ -23,8 +23,7 @@ dependencies = [
     "tqdm",
     "rdkit",
     "chebi-utils>=0.4",
-    # level-1 ensembles: learning to rank (ltr) and dynamic ensemble selection (des)
-    "lightgbm",
+    "lightgbm", # level-1 ensembles: learning to rank (ltr) and dynamic ensemble selection (des)
     "scikit-learn",
     "jsonargparse[signatures]==4.27.7",
 ]
@@ -43,6 +42,4 @@ models = [
     "chebai==1.4.0",
     "chemlog-extra==1.1",  # includes ChemLog / Lopster
     "c3p"
-    # forked version of c3p is windows-compatible
-    #"c3p @ git+https://github.com/sfluegel05/c3p.git"
 ]
