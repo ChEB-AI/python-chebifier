@@ -4,6 +4,7 @@ from typing import List, Optional
 
 import tqdm
 from chebi_utils.read_molecule import smiles_or_inchi_to_mol
+from rdkit import Chem
 
 from chebifier import modelwise_smiles_lru_cache
 from chebifier.prediction_models import BasePredictor
@@ -59,12 +60,16 @@ class C3PPredictor(BasePredictor):
         self.keep_classes_outside_graph = keep_classes_outside_graph
 
     @modelwise_smiles_lru_cache.batch_decorator
-    def predict_list(self, smiles_list: list[str]) -> list:
+    def predict_list(self, smiles_list: list[str | Chem.Mol]) -> list:
         from c3p import classifier as c3p_classifier
 
         _patch_c3p(c3p_classifier)
-        # C3P only takes SMILES, while the evaluation datasets hand out RDKit molecules
-        mol_list = [smiles_or_inchi_to_mol(smiles) for smiles in smiles_list]
+        # smiles_list is not named correctly - it can by an InChI, SMILES or mol object
+        # -> convert all to Mol, then to SMILES
+        mol_list = [
+            smiles_or_inchi_to_mol(smiles) if isinstance(smiles, str) else smiles
+            for smiles in smiles_list
+        ]
         smiles_list = [to_smiles(molecule) for molecule in mol_list]
         result_list = []
         for batch_start in tqdm.tqdm(
@@ -81,10 +86,7 @@ class C3PPredictor(BasePredictor):
             )
 
         # Look up the position of each SMILES via a dict instead of scanning smiles_list
-        # for every result (C3P returns one result per class and molecule, so the scan
-        # made reformatting quadratic in the number of molecules). Repeated SMILES map to
-        # all of their positions, which list.index could not do (it always returned the
-        # first one, leaving the later rows without any predictions).
+        # for every result
         indices_by_smiles: dict[str, list[int]] = {}
         for idx, smiles in enumerate(smiles_list):
             indices_by_smiles.setdefault(smiles, []).append(idx)
