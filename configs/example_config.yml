@@ -1,24 +1,41 @@
+chemlog:
+  type: chemlog
+  model_weight: 100
 
-chemlog_peptides:
-    type: chemlog_peptides
-    model_weight: 100 # if chemlog is available, it always gets chosen
-my_resgated:
-  type: resgated
-  ckpt_path: my_resgated.ckpt # checkpoint trained with chebai
-  molecular_properties: # list of properties used during training
-      - chebai_graph.preprocessing.properties.AtomType
-      - chebai_graph.preprocessing.properties.NumAtomBonds
-      - chebai_graph.preprocessing.properties.AtomCharge
-      - chebai_graph.preprocessing.properties.AtomAromaticity
-      - chebai_graph.preprocessing.properties.AtomHybridization
-      - chebai_graph.preprocessing.properties.AtomNumHs
-      - chebai_graph.preprocessing.properties.BondType
-      - chebai_graph.preprocessing.properties.BondInRing
-      - chebai_graph.preprocessing.properties.BondAromaticity
-      - chebai_graph.preprocessing.properties.RDKit2DNormalized
-  #classwise_weights_path: my_resgated_metrics.json # can be calculated with chebai.results.generate_class_properties
+my_gat_aug:
+  type: gat
+  ckpt_path: my_gat_aug.ckpt
+  dataset_cls: chebai_graph.preprocessing.datasets.ChEBI25_WFGE_WGN_AsPerNodeType
+  molecular_properties:
+    - chebai_graph.preprocessing.properties.AtomNodeLevel
+    - chebai_graph.preprocessing.properties.AugAtomAromaticity
+    - chebai_graph.preprocessing.properties.AugAtomCharge
+    - chebai_graph.preprocessing.properties.AugAtomHybridization
+    - chebai_graph.preprocessing.properties.AugAtomNumHs
+    - chebai_graph.preprocessing.properties.AugAtomType
+    - chebai_graph.preprocessing.properties.AugNumAtomBonds
+    - chebai_graph.preprocessing.properties.AtomFunctionalGroup
+    - chebai_graph.preprocessing.properties.IsHydrogenBondDonorFG
+    - chebai_graph.preprocessing.properties.IsHydrogenBondAcceptorFG
+    - chebai_graph.preprocessing.properties.IsFGAlkyl
+    - chebai_graph.preprocessing.properties.AugRDKit2DNormalized
+    - chebai_graph.preprocessing.properties.BondLevel
+    - chebai_graph.preprocessing.properties.AugBondAromaticity
+    - chebai_graph.preprocessing.properties.AugBondInRing
+    - chebai_graph.preprocessing.properties.AugBondType
 
-my_electra:
-  type: electra
-  ckpt_path: my_electra.ckpt
-  #classwise_weights_path: my_electra_metrics.json # can be calculated with chebai.results.generate_class_properties
+my_gat:
+  type: gat
+  ckpt_path: my_gat.ckpt
+  dataset_cls: chebai_graph.preprocessing.datasets.ChEBI25GraphProperties
+  molecular_properties:
+    - chebai_graph.preprocessing.properties.AtomType
+    - chebai_graph.preprocessing.properties.NumAtomBonds
+    - chebai_graph.preprocessing.properties.AtomCharge
+    - chebai_graph.preprocessing.properties.AtomAromaticity
+    - chebai_graph.preprocessing.properties.AtomHybridization
+    - chebai_graph.preprocessing.properties.AtomNumHs
+    - chebai_graph.preprocessing.properties.BondType
+    - chebai_graph.preprocessing.properties.BondInRing
+    - chebai_graph.preprocessing.properties.BondAromaticity
+    - chebai_graph.preprocessing.properties.RDKit2DNormalized
