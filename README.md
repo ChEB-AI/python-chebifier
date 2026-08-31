@@ -6,19 +6,15 @@ A web application for Chebifier is available at https://chebifier.hastingslab.or
 
 ## Installation
 
-Not all models can be installed automatically at the moment:
-- `chebai-graph` and its dependencies. To install them, follow
-the instructions in the [chebai-graph repository](https://github.com/ChEB-AI/python-chebai-graph).
-- `chemlog-extra` can be installed with `pip install git+https://github.com/ChEB-AI/chemlog-extra.git`
-- `c3p` reads its generated programs assuming a UTF-8 locale and guards each of them with a
-SIGALRM-based timeout, neither of which holds on Windows. The `c3p` predictor works around both
-(see `_patch_c3p`), at the price of running the programs without a timeout there.
-
-
 You can get the package from PyPI:
+```bash
+pip install chebifier[models]
+```
+If you want the barebones Chebifier without the base learners, run
 ```bash
 pip install chebifier
 ```
+(This is useful if you only need a subset of )
 
 or get the latest development version from GitHub:
 ```bash
@@ -36,40 +32,49 @@ pip install -e .
 
 The package provides a command-line interface (CLI) for making predictions using an ensemble model.
 
-The ensemble configuration is given by a configuration file (by default, this is `chebifier/ensemble.yml`). If you
-want to change which models are included in the ensemble or how they are weighted, you can create your own configuration file.
+The ensemble configuration is selected with `--ensemble-config`: `eval` or `web` (both downloaded from
+[Hugging Face](https://huggingface.co/datasets/chebai/chebifier), `eval` is the default) or a path to your own
+configuration file. Create your own file to change which models are included in the ensemble or how they are weighted.
 
 Trained deep learning models are automatically downloaded from [Hugging Face](https://huggingface.co/chebai).
 To access a model from Hugging face, add the `load_model` key in your configuration file. For example:
 
 ```yaml
-my_electra:
-  type: electra
-  load_model: "electra_chebi50-3star_v244"
+my_gat:
+  type: gat
+  load_model: "gat-aug_chebi25-3star_v252"
 ```
 
 ### Available model weights:
 
-* `resgated-aug_chebi50-3star_v244`
-* `gat-aug_chebi50_v244`
-* `electra_chebi50-3star_v244`
-* `gat_chebi50_v244`
-* `electra_chebi50_v241`
-* `resgated_chebi50_v241`
+* `gat-aug_chebi25-3star_v252`
+* `gat_chebi25-3star_v252`
+* `gat-aug_chebi25_v252`
+* `gat_chebi25_v252`
+* `resgated-aug_chebi25-3star_v252`
+* `resgated_chebi25-3star_v252`
+* `resgated-aug_chebi25_v252`
+* `resgated_chebi25_v252`
 * `c3p_with_weights`
 
 
 You can also supply your own model checkpoints (see `configs/example_config.yml` for an example).
 
+The base learners are selected with `-e`/`--ensemble-config` (default `eval`). The deep learning
+base learners and the ensemble's calibration for the standard `eval`/`web` configs are downloaded
+from Hugging Face automatically on first use. To use a calibration of your own (e.g. one you built
+yourself, see below), pass its directory with `-d`/`--ensemble-dir`.
+
 ```bash
-# Make predictions
-python -m chebifier predict --smiles "CC(=O)OC1=CC=CC=C1C(=O)O" --smiles "C1=CC=C(C=C1)C(=O)O"
+# Predict for one or more SMILES / InChI strings (default config: eval)
+python -m chebifier predict -m "CC(=O)OC1=CC=CC=C1C(=O)O" -m "C1=CC=C(C=C1)C(=O)O"
 
-# Make predictions using SMILES from a file
-python -m chebifier predict --smiles-file smiles.txt
+# Predict for molecules listed in a file (one SMILES / InChI per line)
+python -m chebifier predict -f smiles.txt
 
-# Make predictions using a configuration file
-python -m chebifier predict --ensemble-config configs/my_config.yml --smiles-file smiles.txt
+# Use the web ensemble, or your own configuration file
+python -m chebifier predict -e web -m "CC(=O)O"
+python -m chebifier predict -e configs/my_config.yml -f smiles.txt
 
 # Get all available options
 python -m chebifier predict --help
@@ -80,23 +85,61 @@ python -m chebifier predict --help
 You can use the package programmatically as well:
 
 ```python
-from chebifier import BaseEnsemble
+from chebifier.cli import build_base_learners, build_ensemble_model
+from chebifier.predict import predict
+from chebifier.utils import download_ensemble_calibration
 
-# Instantiate ensemble model. Optionally, you can pass
-# a path to a configuration, like 'configs/example_config.yml'
-ensemble = BaseEnsemble()
+# Base learners from the "eval" config ("web" or a path to your own config also work).
+base_learners = build_base_learners("eval")
+# download_ensemble_calibration() fetches the standard calibration from Hugging Face; pass your own
+# directory instead to use a calibration you built yourself.
+ensemble = build_ensemble_model("wmv-f1", download_ensemble_calibration(), "eval")
 
-# Make predictions
 smiles_list = ["CC(=O)OC1=CC=CC=C1C(=O)O", "C1=CC=C(C=C1)C(=O)O"]
-predictions = ensemble.predict_smiles_list(smiles_list)
+result = predict(base_learners, ensemble, smiles_list)
 
-# Print results
-for smiles, prediction in zip(smiles_list, predictions):
+# result["predicted_classes"] is the class column space; result["class_decisions"][i] is the
+# per-class boolean decision for molecule i.
+for i, smiles in enumerate(smiles_list):
+    classes = [
+        cls
+        for cls, keep in zip(result["predicted_classes"], result["class_decisions"][i].tolist())
+        if keep
+    ]
     print(f"SMILES: {smiles}")
-    if prediction:
-        print(f"Predicted classes: {prediction}")
-    else:
-        print("No predictions")
+    print(f"Predicted classes: {classes}" if classes else "No predictions")
+```
+
+### Ensemble strategies and inconsistency resolution
+
+The strategy that turns the base learner predictions into one ensemble decision is chosen with
+`-t`/`--ensemble-type`:
+
+- `mv` — plain majority vote, every model counts equally.
+- `wmv-conf` — majority vote weighted by each model's self-reported confidence.
+- `wmv-f1` — confidence weighting plus a per-class trust from each model's validation F1 (the default).
+- `ltr` — a learning-to-rank meta-model (LambdaMART) fitted on the validation split.
+- `des` — dynamic ensemble selection: per molecule, only the locally most competent models vote.
+
+After a decision has been made for each class, the predictions are reconciled with the ChEBI
+hierarchy and its disjointness axioms. The method is chosen with `-ir`/`--inconsistency-resolution`
+(or disabled with `--no-resolve-inconsistencies`):
+
+- `score-based` — a confidence-based repair of hierarchy and disjointness violations (the default).
+- `ilr-godel`, `ilr-lukasiewicz` — iterative local refinement, repairing violations by fuzzy logic.
+- `hex` — HEX-graph constrained inference (a bounded approximation).
+
+Both are described in more detail in [The ensemble](#the-ensemble) and
+[Inconsistency resolution](#inconsistency-resolution) below.
+
+### Building your own ensemble
+
+To run a new set of models or calibrate on your own data, build an ensemble on the ChEBI validation
+split. This writes the calibration (prediction thresholds, class-wise F1 scores, hyperparameters)
+into the ensemble directory, which `predict` and `evaluate` then read via `-d`:
+
+```bash
+python -m chebifier build -e configs/my_config.yml -t wmv-f1 -d my_ensemble --data-path <dataset>
 ```
 
 ### The models

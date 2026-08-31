@@ -22,10 +22,11 @@ from chebifier.predict import (
 from chebifier.predict import predict as predict_molecules
 from chebifier.predict import resolve_and_decide
 from chebifier.utils import (
-    get_default_configs,
+    download_ensemble_calibration,
     get_disjoint_files,
     labels_from_graph,
     load_chebi_graph,
+    load_ensemble_config,
     process_config,
 )
 
@@ -47,12 +48,7 @@ def build_base_learners(ensemble_config, prediction_cache_dir=None, split=None):
     already cached are not instantiated (their entry is None) - loading their checkpoints would
     be a waste of time since the cached predictions are used instead.
     """
-    if ensemble_config is None:
-        config = get_default_configs()
-    else:
-        print(f"Loading ensemble configuration from {ensemble_config}")
-        with open(ensemble_config, "r") as f:
-            config = yaml.safe_load(f)
+    config = load_ensemble_config(ensemble_config)
 
     with (
         importlib.resources.files("chebifier")
@@ -93,11 +89,7 @@ def build_base_learners(ensemble_config, prediction_cache_dir=None, split=None):
 
 def read_model_weights(ensemble_config):
     """Read the manual per-model weight (model_weight config key) for every base learner."""
-    if ensemble_config is None:
-        config = get_default_configs()
-    else:
-        with open(ensemble_config, "r") as f:
-            config = yaml.safe_load(f)
+    config = load_ensemble_config(ensemble_config)
     with (
         importlib.resources.files("chebifier")
         .joinpath("model_registry.yml")
@@ -210,9 +202,10 @@ def base_learner_options(command):
             click.option(
                 "--ensemble-config",
                 "-e",
-                type=click.Path(exists=True),
+                type=str,
                 default=None,
-                help="Configuration file listing the base learners of the ensemble",
+                help="Ensemble configuration: 'web' or 'eval' (downloaded from Hugging Face) or a "
+                "path to a custom config file listing the base learners (default: eval)",
             ),
             click.option(
                 "--prediction-cache-dir",
@@ -241,8 +234,9 @@ def ensemble_options(command):
                 "--ensemble-dir",
                 "-d",
                 type=click.Path(),
-                required=True,
-                help="Directory where the calibration results of the ensemble are stored",
+                default=None,
+                help="Directory where the calibration results of the ensemble are stored. If "
+                "omitted, the calibration of the standard ensemble is downloaded from Hugging Face.",
             ),
         ]
     ):
@@ -301,6 +295,10 @@ def build(
     ensemble_param,
 ):
     """Build (calibrate) an ensemble on the ChEBI validation set."""
+    if ensemble_dir is None:
+        raise click.UsageError(
+            "--ensemble-dir is required for 'build': it is the directory the calibration is written to."
+        )
     base_learners = build_base_learners(
         ensemble_config, prediction_cache_dir=prediction_cache_dir, split="validation"
     )
@@ -608,6 +606,8 @@ def predict(
         click.echo("No molecules provided. Use --molecules or --molecule-file.")
         return
 
+    if ensemble_dir is None:
+        ensemble_dir = download_ensemble_calibration()
     base_learners = build_base_learners(ensemble_config)
     ensemble_model = build_ensemble_model(ensemble_type, ensemble_dir, ensemble_config)
 

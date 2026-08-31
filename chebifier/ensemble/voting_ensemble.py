@@ -5,7 +5,7 @@ import yaml
 from torchmetrics import F1Score
 
 from chebifier.ensemble.base_ensemble import BaseEnsemble
-from chebifier.inconsistency_resolution import confidence
+from chebifier.inconsistency_resolution import NEUTRAL, confidence
 
 
 class VotingEnsemble(BaseEnsemble):
@@ -108,17 +108,11 @@ class VotingEnsemble(BaseEnsemble):
         valid_counts = valid_predictions.sum(dim=2)  # Sum over models dimension
 
         thresholds = self._load_prediction_thresholds()
-        if any(model_name not in thresholds for model_name in test_predictions.keys()):
-            raise ValueError(
-                "Prediction thresholds not found for all models. Please calibrate the ensemble first. Models missing thresholds: "
-                + ", ".join(
-                    model_name
-                    for model_name in test_predictions.keys()
-                    if model_name not in thresholds
-                )
-            )
         threshold_mask = torch.tensor(
-            [thresholds[model_name] for model_name in test_predictions.keys()],
+            [
+                thresholds.get(model_name, NEUTRAL)
+                for model_name in test_predictions.keys()
+            ],
             dtype=predictions_tensor.dtype,
             device=predictions_tensor.device,
         )

@@ -1,45 +1,51 @@
-electra_chebi50-3star_v244:
-  type: electra
-  hugging_face:
-    repo_id: chebai/electra_chebi50-3star_v244
-    files:
-      ckpt_path: electra_chebi50-3star_v244_x2mngani_epoch=180.ckpt
-      classwise_weights_path: electra_chebi50-3star_v244_x2mngani_epoch=180_trust_3star.json
-gat_chebi50_v244:
+gat-aug_chebi25-3star_v252:
   type: gat
   hugging_face:
-    repo_id: chebai/gat_chebi50_v244
+    repo_id: chebai/gat-aug-chebi25-3star_v252
     files:
-      ckpt_path: gat_chebi50_v244_0nfi19qt_epoch=198.ckpt
-      classwise_weights_path: gat_chebi50_v244_0nfi19qt_epoch=198_trust_3star.json
-gat-aug_chebi50_v244:
+      ckpt_path: gat_chebi25-3star_aug_v252_lr2e-3_asl_260801-1626_wbjc0hoj_best_micro_f1_epoch=99_val_loss=0.0093_val_macro-f1=0.7846_val_micro-f1=0.9268.ckpt
+gat_chebi25-3star_v252:
   type: gat
   hugging_face:
-    repo_id: chebai/gat-aug_chebi50_v244
+    repo_id: chebai/gat-chebi25-3star_v252
     files:
-      ckpt_path: gat-aug_chebi50_v244_8fky8tru_epoch=192.ckpt
-      classwise_weights_path: gat-aug_chebi50_v244_8fky8tru_epoch=192_trust_3star.json
-resgated-aug_chebi50-3star_v244:
+      ckpt_path: gat_chebi25-3star_v252_lr2e-3_asl_260801-1548_99eb45zy_best_micro_f1_epoch=96_val_loss=0.0077_val_macro-f1=0.7551_val_micro-f1=0.9112.ckpt
+gat-aug_chebi25_v252:
+  type: gat
+  hugging_face:
+    repo_id: chebai/gat-aug-chebi25_v252
+    files:
+      ckpt_path: gat_chebi25_aug_v252_lr2e-3_asl_260729-1407_2iu7l0av_best_micro_f1_epoch=74_val_loss=0.0070_val_macro-f1=0.7152_val_micro-f1=0.9126.ckpt
+gat_chebi25_v252:
+  type: gat
+  hugging_face:
+    repo_id: chebai/gat-chebi25_v252
+    files:
+      ckpt_path: gat_chebi25_v252_lr2e-3_asl_260731-0926_h5cr4x62_best_micro_f1_epoch=84_val_loss=0.0057_val_macro-f1=0.6442_val_micro-f1=0.8887.ckpt
+resgated-aug_chebi25-3star_v252:
   type: resgated
   hugging_face:
-    repo_id: chebai/resgated-aug_chebi50-3star_v244
+    repo_id: chebai/resgated-aug-chebi25-3star_v252
     files:
-      ckpt_path: resgated-aug_chebi50-3star_v244_w0rhmajx_epoch=190.ckpt
-      classwise_weights_path: resgated-aug_chebi50-3star_v244_w0rhmajx_epoch=190_trust_3star.json
-electra_chebi50_v241:
-    type: electra
-    hugging_face:
-      repo_id: chebai/electra_chebi50_v241
-      files:
-        ckpt_path: 14ko0zcf_epoch=193.ckpt
-        classwise_weights_path: metrics_electra_14ko0zcf_80-10-10_short.json
-resgated_chebi50_v241:
-    type: resgated
-    hugging_face:
-      repo_id: chebai/resgated_gcn_chebi50_v241
-      files:
-        ckpt_path: 0ps1g189_epoch=122.ckpt
-        classwise_weights_path: metrics_0ps1g189_80-10-10_short.json
+      ckpt_path: res_chebi25-3star_aug_v252_lr2e-3_asl_260801-1647_ls6fmtch_best_micro_f1_epoch=90_val_loss=0.0108_val_macro-f1=0.7718_val_micro-f1=0.9243.ckpt
+resgated_chebi25-3star_v252:
+  type: resgated
+  hugging_face:
+    repo_id: chebai/resgated-chebi25-3star_v252
+    files:
+      ckpt_path: res_chebi25-3star_v252_lr2e-3_asl_260731-1300_8wf5hyca_best_micro_f1_epoch=50_val_loss=0.0068_val_macro-f1=0.7492_val_micro-f1=0.9139.ckpt
+resgated-aug_chebi25_v252:
+  type: resgated
+  hugging_face:
+    repo_id: chebai/resgated-aug-chebi25_v252
+    files:
+      ckpt_path: res_chebi25_aug_v252_lr2e-3_asl_260729-1944_6nehv33m_best_micro_f1_epoch=61_val_loss=0.0080_val_macro-f1=0.6716_val_micro-f1=0.9064.ckpt
+resgated_chebi25_v252:
+  type: resgated
+  hugging_face:
+    repo_id: chebai/resgated-chebi25_v252
+    files:
+      ckpt_path: res_chebi25_v252_lr2e-3_asl_260731-1029_3d2wi9yo_best_micro_f1_epoch=57_val_loss=0.0065_val_macro-f1=0.6466_val_micro-f1=0.8908.ckpt
 c3p_with_weights:
   type: c3p
   hugging_face:

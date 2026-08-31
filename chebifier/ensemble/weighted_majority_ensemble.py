@@ -66,17 +66,17 @@ class WMVwithF1Ensemble(WMVwithConfidenceEnsemble):
                 f"Saved class-wise F1 scores to {f1_path}: {len(f1.tolist())} classes (macro-f1: {f1.mean().item():.4f})."
             )
 
-    def _load_classwise_f1(self, model_name: str) -> torch.Tensor:
+    def _load_classwise_f1(self, model_name: str, num_classes: int) -> torch.Tensor:
         if self.model_f1_scores is not None:
             return self.model_f1_scores[model_name]
         classwise_f1_path = Path(self.ensemble_dir) / f"{model_name}_classwise_f1.txt"
         if classwise_f1_path.exists():
             with open(classwise_f1_path, "r", encoding="utf-8") as f:
                 return torch.tensor([float(x) for x in f.read().splitlines()])
-        else:
-            raise FileNotFoundError(
-                f"Class-wise F1 scores file not found for model {model_name} in ensemble directory: {self.ensemble_dir}. Please calibrate the ensemble first."
-            )
+        print(
+            f"No class-wise F1 scores for {model_name} in {self.ensemble_dir}, voting with full trust."
+        )
+        return torch.ones(num_classes)
 
     def _load_hyperparameters(self) -> tuple[float, int]:
         """Hyperparameters set explicitly take precedence, otherwise the optimal values found during
@@ -107,7 +107,7 @@ class WMVwithF1Ensemble(WMVwithConfidenceEnsemble):
         for model_idx, (model_name, prediction_tensor) in enumerate(
             predictions.items()
         ):
-            classwise_f1 = self._load_classwise_f1(model_name)
+            classwise_f1 = self._load_classwise_f1(model_name, num_classes)
             assert (
                 classwise_f1.shape[0] == num_classes
             ), f"Class-wise F1 scores for model {model_name} do not match number of classes in predictions."

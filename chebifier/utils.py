@@ -1,5 +1,4 @@
 import functools
-import importlib.resources
 import os
 import pickle
 
@@ -59,15 +58,51 @@ def get_disjoint_files():
     return disjoint_files
 
 
-def get_default_configs():
-    default_config_name = "ensemble.yml"
-    print(f"Using default ensemble configuration from {default_config_name}")
-    with (
-        importlib.resources.files("chebifier")
-        .joinpath(default_config_name)
-        .open("r") as f
-    ):
+DEFAULT_CONFIGS = {
+    "eval": "config_26-09_eval.yml",
+    "web": "config_26-09_web.yml",
+}
+
+
+def load_ensemble_config(ensemble_config=None):
+    """Resolve an ensemble configuration to a config dict.
+
+    'web' and 'eval' are downloaded from the chebifier Hugging Face dataset, anything else is
+    treated as a path to a config file. None defaults to 'eval'.
+    """
+    if ensemble_config is None:
+        ensemble_config = "eval"
+    if ensemble_config in DEFAULT_CONFIGS:
+        filename = DEFAULT_CONFIGS[ensemble_config]
+        print(
+            f"Loading '{ensemble_config}' ensemble configuration ({filename}) from Hugging Face..."
+        )
+        path = download_model_files(
+            {
+                "repo_id": "chebai/chebifier",
+                "repo_type": "dataset",
+                "files": {"config": filename},
+            }
+        )["config"]
+    else:
+        print(f"Loading ensemble configuration from {ensemble_config}")
+        path = ensemble_config
+    with open(path, "r") as f:
         return yaml.safe_load(f)
+
+
+DEFAULT_ENSEMBLE_CALIBRATION = "wmv-f1-3star-symbolic"
+
+
+def download_ensemble_calibration(subfolder=DEFAULT_ENSEMBLE_CALIBRATION):
+    """Download the calibration of the standard ensemble from Hugging Face, returning its local path."""
+    from huggingface_hub import snapshot_download
+
+    print(f"Downloading ensemble calibration '{subfolder}' from Hugging Face...")
+    root = snapshot_download(
+        "chebai/chebifier", repo_type="dataset", allow_patterns=f"{subfolder}/*"
+    )
+    return os.path.join(root, subfolder)
 
 
 def process_config(config, model_registry):

@@ -69,10 +69,10 @@ class ChEBILookupPredictor(BasePredictor):
                     )
         return inchikey_lookup
 
-    def predict(self, smiles: str) -> Optional[dict]:
+    def predict(self, smiles: str | Chem.Mol) -> Optional[dict]:
         if not smiles:
             return None
-        mol = smiles_or_inchi_to_mol(smiles)
+        mol = smiles if isinstance(smiles, Chem.Mol) else smiles_or_inchi_to_mol(smiles)
         if mol is None:
             return None
         inchikey = Chem.MolToInchiKey(mol)
