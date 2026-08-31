@@ -3,6 +3,7 @@ from pathlib import Path
 from typing import List, Optional
 
 import tqdm
+from chebi_utils.read_molecule import smiles_or_inchi_to_mol
 
 from chebifier import modelwise_smiles_lru_cache
 from chebifier.prediction_models import BasePredictor
@@ -63,7 +64,8 @@ class C3PPredictor(BasePredictor):
 
         _patch_c3p(c3p_classifier)
         # C3P only takes SMILES, while the evaluation datasets hand out RDKit molecules
-        smiles_list = [to_smiles(molecule) for molecule in smiles_list]
+        mol_list = [smiles_or_inchi_to_mol(smiles) for smiles in smiles_list]
+        smiles_list = [to_smiles(molecule) for molecule in mol_list]
         result_list = []
         for batch_start in tqdm.tqdm(
             range(0, len(smiles_list), 32), desc="Classifying with C3P"

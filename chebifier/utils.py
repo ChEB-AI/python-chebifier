@@ -7,6 +7,7 @@ import networkx as nx
 import numpy as np
 import yaml
 from chebi_utils.obo_extractor import get_hierarchy_subgraph
+from chebi_utils.read_molecule import smiles_or_inchi_to_mol
 from rdkit import Chem
 
 from chebifier.hugging_face import download_model_files
@@ -84,25 +85,16 @@ def process_config(config, model_registry):
     return new_config
 
 
-@functools.lru_cache(maxsize=128)
-def _smiles_to_mol(smiles: str):
-    mol = Chem.MolFromSmiles(smiles, sanitize=False)
-    if mol is not None:
-        # turn aromatic bond types into single/double
-        try:
-            Chem.Kekulize(mol)
-        except Chem.KekulizeException as e:
-            print(f"Failed to Kekulize {smiles}: {e}")
-    return mol
-
-
 def to_mol(molecule: str | Chem.Mol):
-    """Molecules reach a predictor either as SMILES or as RDKit molecules (the evaluation datasets
-    store the latter). Rule-based classifiers expect kekulised molecules, and Kekulize works in
-    place, so a molecule that is not ours to modify is copied first."""
+    """Molecules reach a predictor either as SMILES/InChI or as RDKit molecules (the evaluation
+    datasets store the latter). Rule-based classifiers expect kekulised molecules, and Kekulize
+    works in place, so a molecule that is not ours to modify is copied first."""
     if not isinstance(molecule, Chem.Mol):
-        return _smiles_to_mol(molecule)
-    molecule = Chem.Mol(molecule)
+        molecule = smiles_or_inchi_to_mol(molecule)
+        if molecule is None:
+            return None
+    else:
+        molecule = Chem.Mol(molecule)
     try:
         Chem.Kekulize(molecule)
     except Chem.KekulizeException as e:
