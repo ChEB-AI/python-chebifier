@@ -10,6 +10,7 @@ from chebi_utils.read_molecule import smiles_or_inchi_to_mol
 
 from chebifier.build_ensemble import EnsembleBuilder
 from chebifier.check_env import check_package_installed
+from chebifier.ensemble.weighted_majority_ensemble import WMVwithF1Ensemble
 from chebifier.hugging_face import download_model_files
 from chebifier.inconsistency_resolution import SMOOTHER_NAMES
 from chebifier.model_registry import ENSEMBLES, MODEL_TYPES
@@ -88,6 +89,34 @@ def build_base_learners(ensemble_config, prediction_cache_dir=None, split=None):
             chebi_graph=chebi_graph,
         )
     return base_learners
+
+
+def read_model_weights(ensemble_config):
+    """Read the manual per-model weight (model_weight config key) for every base learner."""
+    if ensemble_config is None:
+        config = get_default_configs()
+    else:
+        with open(ensemble_config, "r") as f:
+            config = yaml.safe_load(f)
+    with (
+        importlib.resources.files("chebifier")
+        .joinpath("model_registry.yml")
+        .open("r") as f
+    ):
+        model_registry = yaml.safe_load(f)
+    return {
+        model_name: model_config["model_weight"]
+        for model_name, model_config in process_config(config, model_registry).items()
+        if "model_weight" in model_config
+    }
+
+
+def build_ensemble_model(ensemble_type, ensemble_dir, ensemble_config, **params):
+    """Instantiate an ensemble, injecting the manual model weights the WMV-F1 ensemble supports."""
+    ensemble_class = ENSEMBLES[ensemble_type]
+    if issubclass(ensemble_class, WMVwithF1Ensemble):
+        params["model_weights"] = read_model_weights(ensemble_config)
+    return ensemble_class(ensemble_dir, **params)
 
 
 def parse_ir_params(ir_param):
@@ -275,8 +304,11 @@ def build(
     base_learners = build_base_learners(
         ensemble_config, prediction_cache_dir=prediction_cache_dir, split="validation"
     )
-    ensemble_model = ENSEMBLES[ensemble_type](
-        ensemble_dir, **parse_ensemble_params(ensemble_param)
+    ensemble_model = build_ensemble_model(
+        ensemble_type,
+        ensemble_dir,
+        ensemble_config,
+        **parse_ensemble_params(ensemble_param),
     )
 
     # TODO: Hugging Face support
@@ -421,7 +453,7 @@ def evaluate(
 
     ir_params = parse_ir_params(ir_param)
     for (type_, dir_), todo in jobs.items():
-        ensemble_model = ENSEMBLES[type_](dir_)
+        ensemble_model = build_ensemble_model(type_, dir_, ensemble_config)
         aggregated, predicted_classes = aggregate_predictions(
             base_learners,
             ensemble_model,
@@ -577,7 +609,7 @@ def predict(
         return
 
     base_learners = build_base_learners(ensemble_config)
-    ensemble_model = ENSEMBLES[ensemble_type](ensemble_dir)
+    ensemble_model = build_ensemble_model(ensemble_type, ensemble_dir, ensemble_config)
 
     predictions = predict_molecules(
         base_learners,

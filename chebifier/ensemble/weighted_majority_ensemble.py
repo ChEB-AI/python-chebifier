@@ -16,6 +16,7 @@ class WMVwithF1Ensemble(WMVwithConfidenceEnsemble):
         ensemble_dir: str,
         weighting_strength=None,
         weighting_exponent=None,
+        model_weights=None,
         **kwargs,
     ):
         """WMV ensemble that weights models based on their class-wise F1 scores, on top of the
@@ -26,11 +27,18 @@ class WMVwithF1Ensemble(WMVwithConfidenceEnsemble):
         weighting_strength and weighting_exponent default to the optimal values determined during
         calibration (best_hyperparameters.csv in the ensemble directory), falling back to 1 if the
         ensemble has not been calibrated. Values passed here take precedence over both.
+
+        model_weights is a per-model multiplier set manually in the configuration (see the
+        model_weight config key), defaulting to 1 for models without an explicit entry.
         """
         super().__init__(ensemble_dir, **kwargs)
         self.weighting_strength = weighting_strength
         self.weighting_exponent = weighting_exponent
+        self.model_weights = dict(model_weights or {})
         self.model_f1_scores = None
+
+    def model_weight(self, model_name: str) -> float:
+        return float(self.model_weights.get(model_name, 1))
 
     def calibrate(self, validation_predictions, validation_data, validation_labels):
         super().calibrate(validation_predictions, validation_data, validation_labels)
@@ -107,7 +115,7 @@ class WMVwithF1Ensemble(WMVwithConfidenceEnsemble):
             classwise_f1 = classwise_f1.unsqueeze(0).expand(num_molecules, -1)
             trust_tensor[:, :, model_idx] = (
                 weighting_strength * classwise_f1 + (1 - weighting_strength)
-            ) ** weighting_exponent
+            ) ** weighting_exponent * self.model_weight(model_name)
         return trust_tensor
 
     def _build_folds(self, validation_predictions, validation_labels):

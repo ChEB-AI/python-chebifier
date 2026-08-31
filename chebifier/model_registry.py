@@ -33,13 +33,13 @@ MODEL_TYPES = {
     "electra": ElectraPredictor,
     "resgated": GNNPredictor,
     "gat": GNNPredictor,
-    "chemlog": ChemlogAllPredictor,
+    "chemlog": ChemlogAllPredictor,  # combines all Chemlog predictors (chemlog_peptides, chemlog_element, chemlog_organox)
     "chemlog_peptides": ChemlogPeptidesPredictor,
     "chebi_lookup": ChEBILookupPredictor,
     "chemlog_element": ChemlogXMolecularEntityPredictor,
     "chemlog_organox": ChemlogOrganoXCompoundPredictor,
-    "lopster": ChemlogLopsterPredictor,
-    "lopster_clingo": ChemLogLopsterClingoPredictor,
+    "lopster": ChemlogLopsterPredictor,  # uses a Lopster->Python translation of the original rules, less efficient tnat lopster_clingo
+    "lopster_clingo": ChemLogLopsterClingoPredictor,  # uses the Clingo solver to evaluate the rules, recommended
     "c3p": C3PPredictor,
 }
 
