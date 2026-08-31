@@ -33,9 +33,22 @@ pip install torch==2.12.0 torch_scatter torch_geometric -f https://data.pyg.org/
 
 ## Usage
 
-### Command Line Interface
+```bash
+# Predict for one or more SMILES / InChI strings (default config: eval)
+python -m chebifier predict -m "CC(=O)OC1=CC=CC=C1C(=O)O" -m "C1=CC=C(C=C1)C(=O)O"
 
-The package provides a command-line interface (CLI) for making predictions using an ensemble model.
+# Predict for molecules listed in a file (one SMILES / InChI per line)
+python -m chebifier predict -f smiles.txt
+
+# Use the web ensemble, or your own configuration file
+python -m chebifier predict -e web -m "CC(=O)O"
+python -m chebifier predict -e configs/my_config.yml -f smiles.txt
+
+# Get all available options
+python -m chebifier predict --help
+```
+
+### Advanced CLI
 
 The ensemble configuration is selected with `--ensemble-config`: `eval` or `web` (both downloaded from
 [Hugging Face](https://huggingface.co/datasets/chebai/chebifier), `eval` is the default) or a path to your own
@@ -69,21 +82,6 @@ The base learners are selected with `-e`/`--ensemble-config` (default `eval`). T
 base learners and the ensemble's calibration for the standard `eval`/`web` configs are downloaded
 from Hugging Face automatically on first use. To use a calibration of your own (e.g. one you built
 yourself, see below), pass its directory with `-d`/`--ensemble-dir`.
-
-```bash
-# Predict for one or more SMILES / InChI strings (default config: eval)
-python -m chebifier predict -m "CC(=O)OC1=CC=CC=C1C(=O)O" -m "C1=CC=C(C=C1)C(=O)O"
-
-# Predict for molecules listed in a file (one SMILES / InChI per line)
-python -m chebifier predict -f smiles.txt
-
-# Use the web ensemble, or your own configuration file
-python -m chebifier predict -e web -m "CC(=O)O"
-python -m chebifier predict -e configs/my_config.yml -f smiles.txt
-
-# Get all available options
-python -m chebifier predict --help
-```
 
 ### Python API
 
