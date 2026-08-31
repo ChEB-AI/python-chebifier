@@ -34,14 +34,14 @@ pip install torch==2.12.0 torch_scatter torch_geometric -f https://data.pyg.org/
 ## Usage
 
 ```bash
-# Predict for one or more SMILES / InChI strings (default config: eval)
+# Predict for one or more SMILES / InChI strings (default config: web)
 python -m chebifier predict -m "CC(=O)OC1=CC=CC=C1C(=O)O" -m "C1=CC=C(C=C1)C(=O)O"
 
 # Predict for molecules listed in a file (one SMILES / InChI per line)
 python -m chebifier predict -f smiles.txt
 
-# Use the web ensemble, or your own configuration file
-python -m chebifier predict -e web -m "CC(=O)O"
+# Use the eval ensemble, or your own configuration file
+python -m chebifier predict -e eval -m "CC(=O)O"
 python -m chebifier predict -e configs/my_config.yml -f smiles.txt
 
 # Get all available options
@@ -50,8 +50,8 @@ python -m chebifier predict --help
 
 ### Advanced CLI
 
-The ensemble configuration is selected with `--ensemble-config`: `eval` or `web` (both downloaded from
-[Hugging Face](https://huggingface.co/datasets/chebai/chebifier), `eval` is the default) or a path to your own
+The ensemble configuration is selected with `--ensemble-config`: `web` or `eval` (both downloaded from
+[Hugging Face](https://huggingface.co/datasets/chebai/chebifier), `web` is the default) or a path to your own
 configuration file. Create your own file to change which models are included in the ensemble or how they are weighted.
 
 Trained deep learning models are automatically downloaded from [Hugging Face](https://huggingface.co/chebai).
@@ -78,7 +78,7 @@ my_gat:
 
 You can also supply your own model checkpoints (see `configs/example_config.yml` for an example).
 
-The base learners are selected with `-e`/`--ensemble-config` (default `eval`). The deep learning
+The base learners are selected with `-e`/`--ensemble-config` (default `web`). The deep learning
 base learners and the ensemble's calibration for the standard `eval`/`web` configs are downloaded
 from Hugging Face automatically on first use. To use a calibration of your own (e.g. one you built
 yourself, see below), pass its directory with `-d`/`--ensemble-dir`.
@@ -92,11 +92,11 @@ from chebifier.cli import build_base_learners, build_ensemble_model
 from chebifier.predict import predict
 from chebifier.utils import download_ensemble_calibration
 
-# Base learners from the "eval" config ("web" or a path to your own config also work).
-base_learners = build_base_learners("eval")
+# Base learners from the "web" config ("eval" or a path to your own config also work).
+base_learners = build_base_learners("web")
 # download_ensemble_calibration() fetches the standard calibration from Hugging Face; pass your own
 # directory instead to use a calibration you built yourself.
-ensemble = build_ensemble_model("wmv-f1", download_ensemble_calibration(), "eval")
+ensemble = build_ensemble_model("wmv-f1", download_ensemble_calibration(), "web")
 
 smiles_list = ["CC(=O)OC1=CC=CC=C1C(=O)O", "C1=CC=C(C=C1)C(=O)O"]
 result = predict(base_learners, ensemble, smiles_list)

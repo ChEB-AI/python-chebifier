@@ -68,10 +68,10 @@ def load_ensemble_config(ensemble_config=None):
     """Resolve an ensemble configuration to a config dict.
 
     'web' and 'eval' are downloaded from the chebifier Hugging Face dataset, anything else is
-    treated as a path to a config file. None defaults to 'eval'.
+    treated as a path to a config file. None defaults to 'web'.
     """
     if ensemble_config is None:
-        ensemble_config = "eval"
+        ensemble_config = "web"
     if ensemble_config in DEFAULT_CONFIGS:
         filename = DEFAULT_CONFIGS[ensemble_config]
         print(

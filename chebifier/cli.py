@@ -205,7 +205,7 @@ def base_learner_options(command):
                 type=str,
                 default=None,
                 help="Ensemble configuration: 'web' or 'eval' (downloaded from Hugging Face) or a "
-                "path to a custom config file listing the base learners (default: eval)",
+                "path to a custom config file listing the base learners (default: web)",
             ),
             click.option(
                 "--prediction-cache-dir",
