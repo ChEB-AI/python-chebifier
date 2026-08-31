@@ -14,7 +14,7 @@ If you want the barebones Chebifier without the base learners, run
 ```bash
 pip install chebifier
 ```
-(This is useful if you only need a subset of )
+(This is useful if you only need a subset of base learners)
 
 or get the latest development version from GitHub:
 ```bash
