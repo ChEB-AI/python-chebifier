@@ -619,6 +619,13 @@ def most_specific(predicted_classes, hierarchy):
     help="Probability a class has to exceed to be predicted (default: the operating point the "
     "ensemble reports)",
 )
+@click.option(
+    "--attribution/--no-attribution",
+    "explain",
+    default=False,
+    help="Include per-class explanations, i.e. the share of the decision each base learner "
+    "holds (default: False)",
+)
 def predict(
     ensemble_config,
     ensemble_type,
@@ -630,6 +637,7 @@ def predict(
     inconsistency_resolution,
     ir_param,
     decision_threshold,
+    explain,
     output,
 ):
     """Predict ChEBI classes for a list of SMILES / InChI strings."""
@@ -661,7 +669,7 @@ def predict(
         inconsistency_resolution_params=parse_ir_params(ir_param),
         decision_threshold=decision_threshold,
         classes=read_classes(classes_file),
-        attribution=True,
+        attribution=explain,
     )
 
     chebi_graph = load_chebi_graph()
@@ -679,14 +687,14 @@ def predict(
     for i, raw_input in enumerate(raw_inputs):
         if molecules_list[i] is None or complete_failure[i]:
             print(f"[{i + 1}] {raw_input}: no prediction")
-            results.append(
-                {
-                    "input": raw_input,
-                    "predicted_parents": None,
-                    "direct_parents": None,
-                    "explanations": None,
-                }
-            )
+            result = {
+                "input": raw_input,
+                "predicted_parents": None,
+                "direct_parents": None,
+            }
+            if explain:
+                result["explanations"] = None
+            results.append(result)
             continue
         class_indices = class_decisions[i].nonzero().flatten().tolist()
         predicted = [predicted_classes[j] for j in class_indices]
@@ -700,35 +708,33 @@ def predict(
             marker = "*" if cls in direct_set else " "
             print(f"      {marker} CHEBI:{cls}  {class_name(chebi_graph, cls)}")
 
-        explanations = {}
-        for j in class_indices:
-            cls = predicted_classes[j]
-            models = {}
-            if attribution is not None:
-                for m, model_name in enumerate(attribution_models):
-                    # which way the model voted, against its own threshold; models that did not
-                    # cover the class cast no vote and hold no share of the decision
-                    vote = int(positive[i, j, m]) - int(negative[i, j, m])
-                    if vote:
-                        models[model_name] = {
-                            "attribution": jsonable(attribution[i, j, m]),
-                            "vote": vote,
-                        }
-            explanations[cls] = {
-                "name": class_name(chebi_graph, cls),
-                "score": jsonable(net_score[i, j]),
-                "models": models,
-            }
-        results.append(
-            {
-                "input": raw_input,
-                "predicted_parents": predicted,
-                "direct_parents": [
-                    [cls, class_name(chebi_graph, cls)] for cls in direct
-                ],
-                "explanations": explanations,
-            }
-        )
+        result = {
+            "input": raw_input,
+            "predicted_parents": predicted,
+            "direct_parents": [[cls, class_name(chebi_graph, cls)] for cls in direct],
+        }
+        if explain:
+            explanations = {}
+            for j in class_indices:
+                cls = predicted_classes[j]
+                models = {}
+                if attribution is not None:
+                    for m, model_name in enumerate(attribution_models):
+                        # which way the model voted, against its own threshold; models that did
+                        # not cover the class cast no vote and hold no share of the decision
+                        vote = int(positive[i, j, m]) - int(negative[i, j, m])
+                        if vote:
+                            models[model_name] = {
+                                "attribution": jsonable(attribution[i, j, m]),
+                                "vote": vote,
+                            }
+                explanations[cls] = {
+                    "name": class_name(chebi_graph, cls),
+                    "score": jsonable(net_score[i, j]),
+                    "models": models,
+                }
+            result["explanations"] = explanations
+        results.append(result)
 
     if output is not None:
         with open(output, "w", encoding="utf-8") as f:
