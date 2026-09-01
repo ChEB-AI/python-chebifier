@@ -25,7 +25,7 @@ class ChEBILookupPredictor(BasePredictor):
             or "ChEBI Lookup: If the SMILES is equivalent to a ChEBI entry, retrieve the classification of that entry."
         )
         self.chebi_version = chebi_version
-        self.chebi_graph = kwargs.get("chebi_graph", load_chebi_graph())
+        self.chebi_graph = kwargs.get("chebi_graph") or load_chebi_graph()
         self.lookup_table = self.get_inchikey_lookup()
 
     def get_inchikey_lookup(self):

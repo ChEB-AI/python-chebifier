@@ -24,7 +24,8 @@ def apply_inconsistency_resolution(
     """Resolve inconsistencies in batches - the smoother materialises a
     (batch_size, n_classes, n_classes) tensor, which does not fit into memory for a whole dataset split.
     """
-    smoother.set_label_names(class_names)
+    if getattr(smoother, "label_names", None) != class_names:
+        smoother.set_label_names(class_names)
     net_score = aggregated_predictions["net_score"]
     valid = aggregated_predictions.get("has_valid_predictions")
     attribution = aggregated_predictions.get("attribution")
@@ -49,6 +50,36 @@ def apply_inconsistency_resolution(
             aggregated_predictions["net_score"] > decision_threshold
         )
     return aggregated_predictions
+
+
+_SMOOTHER_CACHE = {}
+
+
+def get_smoother(inconsistency_resolution, chebi_graph, disjoint_files, params):
+    """Build a smoother, reusing a previously built one where possible.
+
+    Building a smoother parses the disjointness files and (once the label names are known)
+    computes the transitive closure of the hierarchy, which is far more expensive than the
+    resolution itself - and none of it depends on the molecules being predicted.
+    """
+    key = (
+        inconsistency_resolution,
+        id(chebi_graph),
+        tuple(str(file) for file in disjoint_files),
+        repr(sorted(params.items())),
+    )
+    if key not in _SMOOTHER_CACHE:
+        # the graph is kept alive alongside the smoother so that its id stays unique
+        _SMOOTHER_CACHE[key] = (
+            chebi_graph,
+            get_smoother_class(inconsistency_resolution)(
+                chebi_graph=chebi_graph,
+                label_names=None,
+                disjoint_files=disjoint_files,
+                **params,
+            ),
+        )
+    return _SMOOTHER_CACHE[key][1]
 
 
 def base_learner_cache_path(
@@ -188,6 +219,8 @@ def aggregate_predictions(
     aggregated_predictions = ensemble_model.predict(
         test_predictions, molecules, **({"attribution": True} if attribution else {})
     )
+    if attribution:
+        aggregated_predictions["base_learner_predictions"] = test_predictions
     # net_score, has_valid_predictions, intermediate_results_dict
     return aggregated_predictions, predicted_classes
 
@@ -199,6 +232,7 @@ def resolve_and_decide(
     inconsistency_resolution_params: Optional[dict] = None,
     decision_threshold: float = 0.5,
     chebi_graph=None,
+    chebi_graph_file: Optional[str] = None,
     disjoint_files=None,
 ) -> dict:
     """Resolve inconsistencies in aggregated predictions and turn them into class decisions.
@@ -208,20 +242,18 @@ def resolve_and_decide(
 
     `aggregated_predictions` is not modified, so the same aggregation can be passed to several
     resolution variants. Pass `inconsistency_resolution=None` or "none" to skip the resolution,
-    and chebi_graph / disjoint_files to avoid reloading them for every variant.
+    and chebi_graph / disjoint_files to avoid reloading them for every variant. `chebi_graph_file`
+    loads the hierarchy from a local file instead of Hugging Face.
     """
     aggregated_predictions = dict(aggregated_predictions)
     if inconsistency_resolution not in (None, "none"):
         if chebi_graph is None:
-            chebi_graph = load_chebi_graph()
+            chebi_graph = load_chebi_graph(chebi_graph_file)
         if disjoint_files is None:
             disjoint_files = get_disjoint_files()
         params = inconsistency_resolution_params or {}
-        smoother = get_smoother_class(inconsistency_resolution)(
-            chebi_graph=chebi_graph,
-            label_names=None,
-            disjoint_files=disjoint_files,
-            **params,
+        smoother = get_smoother(
+            inconsistency_resolution, chebi_graph, disjoint_files, params
         )
         if "threshold" not in params and hasattr(smoother, "threshold"):
             smoother.threshold = decision_threshold
@@ -261,6 +293,7 @@ def predict(
     classes: Optional[list[str]] = None,
     split: str = "test",
     attribution: bool = False,
+    chebi_graph_file: Optional[str] = None,
 ) -> dict:
     """
     Get end-to-end predictions from base learners and an ensemble model.
@@ -281,8 +314,13 @@ def predict(
         split (str): Name of the dataset split, used to separate cached base learner predictions of
             different splits within the same cache directory.
         attribution (bool): Also report, per (molecule, class), the share of the decision each base
-            learner is responsible for (summing to 1 over the base learners). Only supported by the
-            voting ensembles and the score-based inconsistency resolution.
+            learner is responsible for (summing to 1 over the base learners), together with the raw
+            base learner predictions it was derived from (`base_learner_predictions`, one
+            (num_molecules, num_classes) tensor per model). Only supported by the voting ensembles
+            and the score-based inconsistency resolution.
+        chebi_graph_file (Optional[str]): Local ChEBI graph (pickled networkx graph) the
+            inconsistency resolution runs on. If None (the default), it is downloaded from
+            Hugging Face.
 
     Returns:
         dict: A dictionary containing the final predictions and optionally the smoothed predictions.
@@ -303,6 +341,7 @@ def predict(
             inconsistency_resolution if resolve_inconsistencies else "none"
         ),
         inconsistency_resolution_params=inconsistency_resolution_params,
+        chebi_graph_file=chebi_graph_file,
         decision_threshold=(
             ensemble_model.decision_threshold
             if decision_threshold is None

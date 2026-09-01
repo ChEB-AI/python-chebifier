@@ -67,16 +67,22 @@ class WMVwithF1Ensemble(WMVwithConfidenceEnsemble):
             )
 
     def _load_classwise_f1(self, model_name: str, num_classes: int) -> torch.Tensor:
-        if self.model_f1_scores is not None:
+        if self.model_f1_scores is not None and model_name in self.model_f1_scores:
             return self.model_f1_scores[model_name]
         classwise_f1_path = Path(self.ensemble_dir) / f"{model_name}_classwise_f1.txt"
         if classwise_f1_path.exists():
             with open(classwise_f1_path, "r", encoding="utf-8") as f:
-                return torch.tensor([float(x) for x in f.read().splitlines()])
+                f1 = torch.tensor([float(x) for x in f.read().splitlines()])
+                self.model_f1_scores = self.model_f1_scores or {}
+                self.model_f1_scores[model_name] = f1
+                return f1
         print(
             f"No class-wise F1 scores for {model_name} in {self.ensemble_dir}, voting with full trust."
         )
-        return torch.ones(num_classes)
+        f1 = torch.ones(num_classes)
+        self.model_f1_scores = self.model_f1_scores or {}
+        self.model_f1_scores[model_name] = f1
+        return f1
 
     def _load_hyperparameters(self) -> tuple[float, int]:
         """Hyperparameters set explicitly take precedence, otherwise the optimal values found during
@@ -160,6 +166,8 @@ class WMVwithF1Ensemble(WMVwithConfidenceEnsemble):
         self.weighting_strength = weighting_strength
         self.weighting_exponent = weighting_exponent
         scores = []
+        old_model_f1_scores = self.model_f1_scores
+        old_thresholds = self.prediction_thresholds
         for thresholds, classwise_f1, test_idx in folds:
             self.prediction_thresholds = thresholds
             self.model_f1_scores = classwise_f1
@@ -178,8 +186,8 @@ class WMVwithF1Ensemble(WMVwithConfidenceEnsemble):
             fold_labels = validation_labels[test_idx]
             fold_f1 = self.classwise_f1(decisions, fold_labels)
             scores.append(fold_f1[fold_labels.sum(dim=0) > 0].mean().item())
-        self.prediction_thresholds = None
-        self.model_f1_scores = None
+        self.prediction_thresholds = old_thresholds
+        self.model_f1_scores = old_model_f1_scores
         return scores
 
     def _optimize_hyperparameters(self, validation_predictions, validation_labels):

@@ -14,8 +14,13 @@ from chebifier.hugging_face import download_model_files
 CHEBI_VERSION = 252
 
 
+@functools.lru_cache(maxsize=None)
 def load_chebi_graph(filename=None):
-    """Load ChEBI graph from Hugging Face (if filename is None) or local file"""
+    """Load ChEBI graph from Hugging Face (if filename is None) or local file.
+
+    Cached: unpickling the graph is slow, and callers that key their own caches on the graph
+    (get_superclasses, predict.get_smoother) only hit them if they get the same object back.
+    """
     if filename is None:
         print("Loading ChEBI graph from Hugging Face...")
         file = download_model_files(
@@ -68,10 +73,10 @@ def load_ensemble_config(ensemble_config=None):
     """Resolve an ensemble configuration to a config dict.
 
     'web' and 'eval' are downloaded from the chebifier Hugging Face dataset, anything else is
-    treated as a path to a config file. None defaults to 'eval'.
+    treated as a path to a config file. None defaults to 'web'.
     """
     if ensemble_config is None:
-        ensemble_config = "eval"
+        ensemble_config = "web"
     if ensemble_config in DEFAULT_CONFIGS:
         filename = DEFAULT_CONFIGS[ensemble_config]
         print(

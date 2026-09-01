@@ -1,4 +1,6 @@
 import importlib.resources
+import json
+import math
 import os
 from typing import Literal
 
@@ -6,6 +8,7 @@ import click
 import numpy as np
 import pandas as pd
 import yaml
+from chebi_utils.obo_extractor import get_hierarchy_subgraph
 from chebi_utils.read_molecule import smiles_or_inchi_to_mol
 
 from chebifier.build_ensemble import EnsembleBuilder
@@ -32,16 +35,19 @@ from chebifier.utils import (
 
 
 def read_molecules(molecules, molecule_file):
-    """Collect molecules from CLI arguments and/or a file (one molecule per line) and convert them to RDKit mol objects."""
+    """Collect molecules from CLI arguments and/or a file (one molecule per line), returning the raw
+    inputs alongside the RDKit mol objects they were parsed into."""
     raw_inputs = list(molecules)
     if molecule_file:
         with open(molecule_file, "r", encoding="utf-8") as f:
             raw_inputs.extend([line.strip() for line in f if line.strip()])
 
-    return [smiles_or_inchi_to_mol(raw_input) for raw_input in raw_inputs]
+    return raw_inputs, [smiles_or_inchi_to_mol(raw_input) for raw_input in raw_inputs]
 
 
-def build_base_learners(ensemble_config, prediction_cache_dir=None, split=None):
+def build_base_learners(
+    ensemble_config, prediction_cache_dir=None, split=None, chebi_graph_file=None
+):
     """Instantiate the base learners described by an ensemble configuration file.
 
     If prediction_cache_dir and split are given, models whose predictions for that split are
@@ -71,7 +77,7 @@ def build_base_learners(ensemble_config, prediction_cache_dir=None, split=None):
             base_learners[model_name] = None
             continue
         if chebi_graph is None:
-            chebi_graph = load_chebi_graph()
+            chebi_graph = load_chebi_graph(chebi_graph_file)
         if "hugging_face" in model_config:
             hugging_face_kwargs = download_model_files(model_config["hugging_face"])
         else:
@@ -205,7 +211,7 @@ def base_learner_options(command):
                 type=str,
                 default=None,
                 help="Ensemble configuration: 'web' or 'eval' (downloaded from Hugging Face) or a "
-                "path to a custom config file listing the base learners (default: eval)",
+                "path to a custom config file listing the base learners (default: web)",
             ),
             click.option(
                 "--prediction-cache-dir",
@@ -322,6 +328,11 @@ def build(
         prediction_cache_dir,
     )
     builder.build_ensemble()
+
+    with open(
+        os.path.join(ensemble_dir, "ensemble_classes.txt"), "w", encoding="utf-8"
+    ) as f:
+        f.writelines(f"{cls}\n" for cls in validation_labels.columns)
 
 
 @cli.command()
@@ -441,7 +452,6 @@ def evaluate(
         chebi_graph = load_chebi_graph()
         disjoint_files = get_disjoint_files()
 
-    # TODO: Hugging Face support
     eval_data, eval_labels = load_dataset(
         data_path,
         split=split,
@@ -542,6 +552,30 @@ def collect_classes(ensemble_config, prediction_cache_dir, data_path, split, out
     print(f"Saved {len(classes)} classes to {output}.")
 
 
+def class_name(chebi_graph, chebi_id):
+    node = chebi_graph.nodes.get(str(chebi_id))
+    if node is None or not node.get("name"):
+        return f"CHEBI:{chebi_id}"
+    return node["name"]
+
+
+def jsonable(value):
+    """JSON has no NaN, and a base learner that did not cover a class reports exactly that."""
+    value = float(value)
+    return None if math.isnan(value) else value
+
+
+def most_specific(predicted_classes, hierarchy):
+    """The predicted classes that have no predicted subclass, i.e. the lowest classes the
+    prediction reaches in the hierarchy. is-a edges point from child to parent, so the predecessors
+    of a class are its subclasses."""
+    predicted = [cls for cls in predicted_classes if cls in hierarchy]
+    subgraph = hierarchy.subgraph(predicted)
+    return [
+        cls for cls in predicted if not any(True for _ in subgraph.predecessors(cls))
+    ]
+
+
 @cli.command()
 @ensemble_options
 @click.option(
@@ -587,6 +621,21 @@ def collect_classes(ensemble_config, prediction_cache_dir, data_path, split, out
     help="Probability a class has to exceed to be predicted (default: the operating point the "
     "ensemble reports)",
 )
+@click.option(
+    "--chebi-graph",
+    "chebi_graph_file",
+    type=click.Path(exists=True),
+    default=None,
+    help="Local ChEBI graph (pickled networkx graph) to run on (default: downloaded from "
+    "Hugging Face)",
+)
+@click.option(
+    "--attribution/--no-attribution",
+    "explain",
+    default=False,
+    help="Include per-class explanations, i.e. the share of the decision each base learner "
+    "holds (default: False)",
+)
 def predict(
     ensemble_config,
     ensemble_type,
@@ -598,18 +647,30 @@ def predict(
     inconsistency_resolution,
     ir_param,
     decision_threshold,
+    chebi_graph_file,
+    explain,
     output,
 ):
     """Predict ChEBI classes for a list of SMILES / InChI strings."""
-    molecules_list = read_molecules(molecules, molecule_file)
+    raw_inputs, molecules_list = read_molecules(molecules, molecule_file)
     if not molecules_list:
         click.echo("No molecules provided. Use --molecules or --molecule-file.")
         return
 
     if ensemble_dir is None:
         ensemble_dir = download_ensemble_calibration()
-    base_learners = build_base_learners(ensemble_config)
+    base_learners = build_base_learners(
+        ensemble_config, chebi_graph_file=chebi_graph_file
+    )
     ensemble_model = build_ensemble_model(ensemble_type, ensemble_dir, ensemble_config)
+
+    classes_file = os.path.join(ensemble_dir, "ensemble_classes.txt")
+    if not os.path.exists(classes_file):
+        print(
+            f"Warning: no ensemble_classes.txt in {ensemble_dir}, deriving classes from "
+            "the base learner predictions instead."
+        )
+        classes_file = None
 
     predictions = predict_molecules(
         base_learners,
@@ -620,10 +681,83 @@ def predict(
         inconsistency_resolution=inconsistency_resolution,
         inconsistency_resolution_params=parse_ir_params(ir_param),
         decision_threshold=decision_threshold,
+        classes=read_classes(classes_file),
+        attribution=explain,
+        chebi_graph_file=chebi_graph_file,
     )
 
-    print(f"Predictions: {predictions}")
-    # TODO: turn the aggregated predictions into ChEBI classes per molecule, print them / save to output
+    chebi_graph = load_chebi_graph(chebi_graph_file)
+    hierarchy = get_hierarchy_subgraph(chebi_graph)
+    predicted_classes = predictions["predicted_classes"]
+    class_decisions = predictions["class_decisions"]
+    complete_failure = predictions["complete_failure"]
+    net_score = predictions["net_score"]
+    attribution = predictions.get("attribution")
+    attribution_models = predictions.get("attribution_models")
+    base_learner_predictions = predictions.get("base_learner_predictions", {})
+    positive = predictions.get("positive_mask")
+    negative = predictions.get("negative_mask")
+
+    results = []
+    for i, raw_input in enumerate(raw_inputs):
+        if molecules_list[i] is None or complete_failure[i]:
+            print(f"[{i + 1}] {raw_input}: no prediction")
+            result = {
+                "input": raw_input,
+                "predicted_parents": None,
+                "direct_parents": None,
+            }
+            if explain:
+                result["explanations"] = None
+            results.append(result)
+            continue
+        class_indices = class_decisions[i].nonzero().flatten().tolist()
+        predicted = [predicted_classes[j] for j in class_indices]
+        direct = most_specific(predicted, hierarchy)
+        direct_set = set(direct)
+        print(
+            f"[{i + 1}] {raw_input}: {len(predicted)} predicted class(es), "
+            f"{len(direct)} most specific (*)"
+        )
+        for cls in predicted:
+            marker = "*" if cls in direct_set else " "
+            print(f"      {marker} CHEBI:{cls}  {class_name(chebi_graph, cls)}")
+
+        result = {
+            "input": raw_input,
+            "predicted_parents": predicted,
+            "direct_parents": [[cls, class_name(chebi_graph, cls)] for cls in direct],
+        }
+        if explain:
+            explanations = {}
+            for j in class_indices:
+                cls = predicted_classes[j]
+                models = {}
+                if attribution is not None:
+                    for m, model_name in enumerate(attribution_models):
+                        # which way the model voted, against its own threshold; models that did
+                        # not cover the class cast no vote and hold no share of the decision
+                        vote = int(positive[i, j, m]) - int(negative[i, j, m])
+                        if vote:
+                            models[model_name] = {
+                                "attribution": jsonable(attribution[i, j, m]),
+                                "vote": vote,
+                                "prediction": jsonable(
+                                    base_learner_predictions[model_name][i, j]
+                                ),
+                            }
+                explanations[cls] = {
+                    "name": class_name(chebi_graph, cls),
+                    "score": jsonable(net_score[i, j]),
+                    "models": models,
+                }
+            result["explanations"] = explanations
+        results.append(result)
+
+    if output is not None:
+        with open(output, "w", encoding="utf-8") as f:
+            json.dump(results, f, indent=2)
+        print(f"Saved predictions for {len(results)} molecules to {output}.")
 
 
 if __name__ == "__main__":
