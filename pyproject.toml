@@ -38,7 +38,7 @@ chebifier = ["*.yml"]
 dev = ["black", "isort", "pre-commit"]
 
 models = [
-    "chebai_graph==1.2.1",
+    "chebai_graph==1.2.3",
     "chebai==1.4.0",
     "chemlog-extra==1.1",  # includes ChemLog / Lopster
     "c3p"
