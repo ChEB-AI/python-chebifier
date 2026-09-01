@@ -232,6 +232,7 @@ def resolve_and_decide(
     inconsistency_resolution_params: Optional[dict] = None,
     decision_threshold: float = 0.5,
     chebi_graph=None,
+    chebi_graph_file: Optional[str] = None,
     disjoint_files=None,
 ) -> dict:
     """Resolve inconsistencies in aggregated predictions and turn them into class decisions.
@@ -241,12 +242,13 @@ def resolve_and_decide(
 
     `aggregated_predictions` is not modified, so the same aggregation can be passed to several
     resolution variants. Pass `inconsistency_resolution=None` or "none" to skip the resolution,
-    and chebi_graph / disjoint_files to avoid reloading them for every variant.
+    and chebi_graph / disjoint_files to avoid reloading them for every variant. `chebi_graph_file`
+    loads the hierarchy from a local file instead of Hugging Face.
     """
     aggregated_predictions = dict(aggregated_predictions)
     if inconsistency_resolution not in (None, "none"):
         if chebi_graph is None:
-            chebi_graph = load_chebi_graph()
+            chebi_graph = load_chebi_graph(chebi_graph_file)
         if disjoint_files is None:
             disjoint_files = get_disjoint_files()
         params = inconsistency_resolution_params or {}
@@ -291,6 +293,7 @@ def predict(
     classes: Optional[list[str]] = None,
     split: str = "test",
     attribution: bool = False,
+    chebi_graph_file: Optional[str] = None,
 ) -> dict:
     """
     Get end-to-end predictions from base learners and an ensemble model.
@@ -315,6 +318,9 @@ def predict(
             base learner predictions it was derived from (`base_learner_predictions`, one
             (num_molecules, num_classes) tensor per model). Only supported by the voting ensembles
             and the score-based inconsistency resolution.
+        chebi_graph_file (Optional[str]): Local ChEBI graph (pickled networkx graph) the
+            inconsistency resolution runs on. If None (the default), it is downloaded from
+            Hugging Face.
 
     Returns:
         dict: A dictionary containing the final predictions and optionally the smoothed predictions.
@@ -335,6 +341,7 @@ def predict(
             inconsistency_resolution if resolve_inconsistencies else "none"
         ),
         inconsistency_resolution_params=inconsistency_resolution_params,
+        chebi_graph_file=chebi_graph_file,
         decision_threshold=(
             ensemble_model.decision_threshold
             if decision_threshold is None

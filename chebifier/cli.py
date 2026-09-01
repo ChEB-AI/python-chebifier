@@ -45,7 +45,9 @@ def read_molecules(molecules, molecule_file):
     return raw_inputs, [smiles_or_inchi_to_mol(raw_input) for raw_input in raw_inputs]
 
 
-def build_base_learners(ensemble_config, prediction_cache_dir=None, split=None):
+def build_base_learners(
+    ensemble_config, prediction_cache_dir=None, split=None, chebi_graph_file=None
+):
     """Instantiate the base learners described by an ensemble configuration file.
 
     If prediction_cache_dir and split are given, models whose predictions for that split are
@@ -75,7 +77,7 @@ def build_base_learners(ensemble_config, prediction_cache_dir=None, split=None):
             base_learners[model_name] = None
             continue
         if chebi_graph is None:
-            chebi_graph = load_chebi_graph()
+            chebi_graph = load_chebi_graph(chebi_graph_file)
         if "hugging_face" in model_config:
             hugging_face_kwargs = download_model_files(model_config["hugging_face"])
         else:
@@ -620,6 +622,14 @@ def most_specific(predicted_classes, hierarchy):
     "ensemble reports)",
 )
 @click.option(
+    "--chebi-graph",
+    "chebi_graph_file",
+    type=click.Path(exists=True),
+    default=None,
+    help="Local ChEBI graph (pickled networkx graph) to run on (default: downloaded from "
+    "Hugging Face)",
+)
+@click.option(
     "--attribution/--no-attribution",
     "explain",
     default=False,
@@ -637,6 +647,7 @@ def predict(
     inconsistency_resolution,
     ir_param,
     decision_threshold,
+    chebi_graph_file,
     explain,
     output,
 ):
@@ -648,7 +659,9 @@ def predict(
 
     if ensemble_dir is None:
         ensemble_dir = download_ensemble_calibration()
-    base_learners = build_base_learners(ensemble_config)
+    base_learners = build_base_learners(
+        ensemble_config, chebi_graph_file=chebi_graph_file
+    )
     ensemble_model = build_ensemble_model(ensemble_type, ensemble_dir, ensemble_config)
 
     classes_file = os.path.join(ensemble_dir, "ensemble_classes.txt")
@@ -670,9 +683,10 @@ def predict(
         decision_threshold=decision_threshold,
         classes=read_classes(classes_file),
         attribution=explain,
+        chebi_graph_file=chebi_graph_file,
     )
 
-    chebi_graph = load_chebi_graph()
+    chebi_graph = load_chebi_graph(chebi_graph_file)
     hierarchy = get_hierarchy_subgraph(chebi_graph)
     predicted_classes = predictions["predicted_classes"]
     class_decisions = predictions["class_decisions"]
