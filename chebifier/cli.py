@@ -680,6 +680,7 @@ def predict(
     net_score = predictions["net_score"]
     attribution = predictions.get("attribution")
     attribution_models = predictions.get("attribution_models")
+    base_learner_predictions = predictions.get("base_learner_predictions", {})
     positive = predictions.get("positive_mask")
     negative = predictions.get("negative_mask")
 
@@ -727,6 +728,9 @@ def predict(
                             models[model_name] = {
                                 "attribution": jsonable(attribution[i, j, m]),
                                 "vote": vote,
+                                "prediction": jsonable(
+                                    base_learner_predictions[model_name][i, j]
+                                ),
                             }
                 explanations[cls] = {
                     "name": class_name(chebi_graph, cls),

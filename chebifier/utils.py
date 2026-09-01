@@ -14,8 +14,13 @@ from chebifier.hugging_face import download_model_files
 CHEBI_VERSION = 252
 
 
+@functools.lru_cache(maxsize=None)
 def load_chebi_graph(filename=None):
-    """Load ChEBI graph from Hugging Face (if filename is None) or local file"""
+    """Load ChEBI graph from Hugging Face (if filename is None) or local file.
+
+    Cached: unpickling the graph is slow, and callers that key their own caches on the graph
+    (get_superclasses, predict.get_smoother) only hit them if they get the same object back.
+    """
     if filename is None:
         print("Loading ChEBI graph from Hugging Face...")
         file = download_model_files(
