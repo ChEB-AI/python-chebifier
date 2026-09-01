@@ -173,7 +173,7 @@ The ensemble collects per-class scores from every base learner and turns them in
 class, selected with `-t`/`--ensemble-type`. For an extended description, see
 [Flügel, Simon, et al., 2025: Chebifier 2: An Ensemble for Chemistry](https://ceur-ws.org/Vol-4064/SymGenAI4Sci-paper4.pdf).
 
-<img width="2848" height="2284" alt="image" src="https://github.com/user-attachments/assets/1a9e5a0f-d041-4661-9994-9add5d67acb5" />
+<img width="819" height="642" alt="ensemble architecture overview" src="https://github.com/user-attachments/assets/a2be1718-b6a4-4f8f-b7b3-94d5249d502b" />
 
 
 | Strategy | How it works |
