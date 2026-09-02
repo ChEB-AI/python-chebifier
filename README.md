@@ -179,8 +179,8 @@ class, selected with `-t`/`--ensemble-type`. For an extended description, see
 | Strategy | How it works |
 |----------|--------------|
 | `mv` | Plain majority vote; every model that predicted a class counts equally. |
-| `wmv-conf` | Majority vote weighted by each model's confidence, i.e. how far its score sits from its calibrated decision threshold (scaled per side so a maximally confident positive and negative both count 1). |
-| `wmv-f1` (default) | Confidence weighting plus a per-class trust term, the model's validation F1 raised to the power 6.25. |
+| `wmv-conf` | Majority vote weighted by each model's confidence, i.e. how far its score sits from its calibrated decision threshold. |
+| `wmv-f1` (default) | Confidence weighting plus a per-class trust term (based on the validation set F1 score). |
 | `ltr` | A LambdaMART ranker (adapting [GOLabeler](https://doi.org/10.1093/bioinformatics/bty130)) fitted on the validation split ranks classes per molecule from the base learner scores. Optionally adds per-class validation statistics as features (`class_stats`). |
 | `des` | Dynamic ensemble selection (adapting [META-DES.H](https://arxiv.org/pdf/1811.01742)): a meta-classifier estimates each base learner's local competence per molecule, and only the competent ones vote. |
 
