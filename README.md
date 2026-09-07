@@ -1,6 +1,6 @@
 # python-chebifier
-An AI ensemble model for predicting chemical classes in the ChEBI ontology. It integrates deep learning models,
-rule-based models and generative AI-based models.
+An AI ensemble model for predicting chemical classes in the [ChEBI ontology](https://www.ebi.ac.uk/chebi/). It integrates deep learning models,
+rule-based models and generative AI-based models. As of version 1.3, the models that are available per default cover [2,234 ChEBI classes](https://github.com/ChEB-AI/python-chebifier/wiki/ChEBI-Classes-covered-by-Chebifier)
 
 A web application for Chebifier is available at https://chebifier.hastingslab.org/.
 
