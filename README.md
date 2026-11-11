@@ -4,6 +4,8 @@ rule-based models and generative AI-based models. As of version 1.3, the models 
 
 A web application for Chebifier is available at https://chebifier.hastingslab.org/.
 
+Experiments with Chebifier are described in [Flügel et al., 2026: Chebifier 2: An ensemble for Chemistry, preprint](https://www.researchsquare.com/article/rs-9023090/v2).
+
 ## Installation
 
 You can get the package from PyPI:
