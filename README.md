@@ -4,7 +4,7 @@ rule-based models and generative AI-based models. As of version 1.3, the models 
 
 A web application for Chebifier is available at https://chebifier.hastingslab.org/.
 
-Experiments with Chebifier are described in [Flügel et al., 2026: Chebifier 2: An ensemble for Chemistry, preprint](https://www.researchsquare.com/article/rs-9023090/v2).
+Experiments with Chebifier are described in [Flügel et al., 2026: Chebifier 2: An ensemble for Chemistry (preprint)](https://www.researchsquare.com/article/rs-9023090/v2).
 
 ## Installation
 
@@ -173,7 +173,7 @@ to your configuration file.
 ### The ensemble
 The ensemble collects per-class scores from every base learner and turns them into one decision per
 class, selected with `-t`/`--ensemble-type`. For an extended description, see
-[Flügel, Simon, et al., 2025: Chebifier 2: An Ensemble for Chemistry](https://ceur-ws.org/Vol-4064/SymGenAI4Sci-paper4.pdf).
+[Flügel et al., 2026: Chebifier 2: An ensemble for Chemistry (preprint)](https://www.researchsquare.com/article/rs-9023090/v2).
 
 <img width="819" height="642" alt="ensemble architecture overview" src="https://github.com/user-attachments/assets/a2be1718-b6a4-4f8f-b7b3-94d5249d502b" />
 
