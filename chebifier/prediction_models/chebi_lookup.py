@@ -7,7 +7,7 @@ from rdkit import Chem
 
 from chebifier import modelwise_smiles_lru_cache
 from chebifier.prediction_models import BasePredictor
-from chebifier.utils import get_superclasses, load_chebi_graph
+from chebifier.utils import CHEBI_VERSION, get_superclasses, load_chebi_graph
 
 
 class ChEBILookupPredictor(BasePredictor):
@@ -15,9 +15,13 @@ class ChEBILookupPredictor(BasePredictor):
         self,
         model_name: str,
         description: str = None,
-        chebi_version: int = 241,
+        chebi_version: int = CHEBI_VERSION,
         **kwargs,
     ):
+        """The ChEBI version only specifies where the lookup table is stored,
+        not which version of the ChEBI is used. The lookup table is built from
+        the `chebi_graph` argument if provided, otherwise it is built from the default ChEBI graph.
+        """
 
         super().__init__(model_name, **kwargs)
         self._description = (
@@ -34,6 +38,7 @@ class ChEBILookupPredictor(BasePredictor):
         )
         if not os.path.exists(path):
             inchikey_lookup = self.build_inchikey_lookup()
+            os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(inchikey_lookup, f, indent=4)
         else:
