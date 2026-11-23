@@ -30,13 +30,18 @@ class NNPredictor(BasePredictor, ABC):
             ckpt_path, self.batch_size, compile_model=compile_model
         )
 
+    def _predict_molecules(self, molecules):
+        return self.predictor.predict_molecules(
+            [Chem.Mol(m) if isinstance(m, Chem.Mol) else m for m in molecules]
+        )
+
     @modelwise_smiles_lru_cache.batch_decorator
     def predict_list(self, smiles_list: list[str]) -> list:
         """
         Returns a list with the length of smiles_list, each element is
         either None (=failure) or a dictionary of classes and predicted values.
         """
-        raw_preds = self.predictor.predict_molecules(smiles_list)
+        raw_preds = self._predict_molecules(smiles_list)
         if raw_preds is None:
             return [None for _ in smiles_list]
         return [
@@ -56,7 +61,7 @@ class NNPredictor(BasePredictor, ABC):
     def predict_dense(
         self, molecule_list: list[str | Chem.Mol]
     ) -> tuple[list[str], np.ndarray]:
-        raw_preds = self.predictor.predict_molecules(molecule_list)
+        raw_preds = self._predict_molecules(molecule_list)
         classes = [str(label) for label in self.predictor._classification_labels]
         # molecules the model could not process stay NaN, so the ensemble skips this
         # model for those rows only (see dicts_to_dense in base_predictor.py)
