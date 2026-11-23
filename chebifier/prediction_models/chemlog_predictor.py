@@ -81,7 +81,7 @@ class ChemlogExtraPredictor(BasePredictor):
                         for superclass in get_superclasses(self.chebi_graph, cls):
                             sample_additions[superclass] = 1
                 sample.update(sample_additions)
-        return res
+        return [None if mol is None else r for mol, r in zip(mol_list, res)]
 
 
 class ChemlogXMolecularEntityPredictor(ChemlogExtraPredictor):
