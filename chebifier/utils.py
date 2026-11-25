@@ -134,6 +134,8 @@ def to_mol(molecule: str | Chem.Mol):
     """Molecules reach a predictor either as SMILES/InChI or as RDKit molecules (the evaluation
     datasets store the latter). Rule-based classifiers expect kekulised molecules, and Kekulize
     works in place, so a molecule that is not ours to modify is copied first."""
+    if molecule is None:
+        return None
     if not isinstance(molecule, Chem.Mol):
         molecule = smiles_or_inchi_to_mol(molecule)
         if molecule is None:

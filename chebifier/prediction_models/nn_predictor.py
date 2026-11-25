@@ -34,9 +34,23 @@ class NNPredictor(BasePredictor, ABC):
             )
 
     def _predict_molecules(self, molecules):
-        return self.predictor.predict_molecules(
-            [Chem.Mol(m) if isinstance(m, Chem.Mol) else m for m in molecules]
+        valid = [i for i, m in enumerate(molecules) if m is not None]
+        output = [None] * len(molecules)
+        if not valid:
+            return output
+        preds = self.predictor.predict_molecules(
+            [
+                (
+                    Chem.Mol(molecules[i])
+                    if isinstance(molecules[i], Chem.Mol)
+                    else molecules[i]
+                )
+                for i in valid
+            ]
         )
+        for i, pred in zip(valid, preds):
+            output[i] = pred
+        return output
 
     @modelwise_smiles_lru_cache.batch_decorator
     def predict_list(self, smiles_list: list[str]) -> list:
