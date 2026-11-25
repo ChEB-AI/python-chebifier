@@ -117,7 +117,10 @@ class C3PPredictor(BasePredictor):
                 f"({', '.join(sorted(dropped)[:8])}"
                 f"{', ...' if len(dropped) > 8 else ''})"
             )
-        return result_reformatted
+        return [
+            preds if smiles and Chem.MolFromSmiles(smiles) is not None else None
+            for smiles, preds in zip(smiles_list, result_reformatted)
+        ]
 
     def explain_smiles(self, smiles):
         """

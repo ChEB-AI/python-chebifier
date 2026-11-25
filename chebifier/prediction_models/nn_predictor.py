@@ -1,3 +1,5 @@
+import contextlib
+import io
 from abc import ABC
 from typing import TYPE_CHECKING
 
@@ -26,9 +28,29 @@ class NNPredictor(BasePredictor, ABC):
         # such as attention weights. Therefore, ELECTRA attention graphs will only work with compile_model=False.
         compile_model = kwargs.get("compile_model", True)
         # If batch_size is not provided, it will be set to default batch size used during training in Predictor
-        self.predictor: Predictor = Predictor(
-            ckpt_path, self.batch_size, compile_model=compile_model
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.predictor: Predictor = Predictor(
+                ckpt_path, self.batch_size, compile_model=compile_model
+            )
+
+    def _predict_molecules(self, molecules):
+        valid = [i for i, m in enumerate(molecules) if m is not None]
+        output = [None] * len(molecules)
+        if not valid:
+            return output
+        preds = self.predictor.predict_molecules(
+            [
+                (
+                    Chem.Mol(molecules[i])
+                    if isinstance(molecules[i], Chem.Mol)
+                    else molecules[i]
+                )
+                for i in valid
+            ]
         )
+        for i, pred in zip(valid, preds):
+            output[i] = pred
+        return output
 
     @modelwise_smiles_lru_cache.batch_decorator
     def predict_list(self, smiles_list: list[str]) -> list:
@@ -36,7 +58,7 @@ class NNPredictor(BasePredictor, ABC):
         Returns a list with the length of smiles_list, each element is
         either None (=failure) or a dictionary of classes and predicted values.
         """
-        raw_preds = self.predictor.predict_molecules(smiles_list)
+        raw_preds = self._predict_molecules(smiles_list)
         if raw_preds is None:
             return [None for _ in smiles_list]
         return [
@@ -56,7 +78,7 @@ class NNPredictor(BasePredictor, ABC):
     def predict_dense(
         self, molecule_list: list[str | Chem.Mol]
     ) -> tuple[list[str], np.ndarray]:
-        raw_preds = self.predictor.predict_molecules(molecule_list)
+        raw_preds = self._predict_molecules(molecule_list)
         classes = [str(label) for label in self.predictor._classification_labels]
         # molecules the model could not process stay NaN, so the ensemble skips this
         # model for those rows only (see dicts_to_dense in base_predictor.py)
