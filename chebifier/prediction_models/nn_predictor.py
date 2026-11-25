@@ -1,3 +1,5 @@
+import contextlib
+import io
 from abc import ABC
 from typing import TYPE_CHECKING
 
@@ -26,9 +28,10 @@ class NNPredictor(BasePredictor, ABC):
         # such as attention weights. Therefore, ELECTRA attention graphs will only work with compile_model=False.
         compile_model = kwargs.get("compile_model", True)
         # If batch_size is not provided, it will be set to default batch size used during training in Predictor
-        self.predictor: Predictor = Predictor(
-            ckpt_path, self.batch_size, compile_model=compile_model
-        )
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.predictor: Predictor = Predictor(
+                ckpt_path, self.batch_size, compile_model=compile_model
+            )
 
     def _predict_molecules(self, molecules):
         return self.predictor.predict_molecules(

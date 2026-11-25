@@ -1,5 +1,6 @@
 import json
 import os
+import warnings
 from typing import Optional
 
 from chebi_utils.read_molecule import smiles_or_inchi_to_mol
@@ -37,7 +38,10 @@ class ChEBILookupPredictor(BasePredictor):
             "data", f"chebi_v{self.chebi_version}", "inchikey_lookup.json"
         )
         if not os.path.exists(path):
-            inchikey_lookup = self.build_inchikey_lookup()
+            print("Building InChIKey lookup (only happens once)...")
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                inchikey_lookup = self.build_inchikey_lookup()
             os.makedirs(os.path.dirname(path), exist_ok=True)
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(inchikey_lookup, f, indent=4)
@@ -51,6 +55,7 @@ class ChEBILookupPredictor(BasePredictor):
         import networkx as nx
 
         inchikey_lookup = dict()
+        failed = 0
         for chebi_id, smiles in nx.get_node_attributes(
             self.chebi_graph, "smiles"
         ).items():
@@ -58,9 +63,7 @@ class ChEBILookupPredictor(BasePredictor):
                 try:
                     mol = smiles_or_inchi_to_mol(smiles)
                     if mol is None:
-                        print(
-                            f"Failed to parse SMILES {smiles} for ChEBI ID {chebi_id}"
-                        )
+                        failed += 1
                         continue
                     inchikey = Chem.MolToInchiKey(mol)
                     if inchikey not in inchikey_lookup:
@@ -68,10 +71,10 @@ class ChEBILookupPredictor(BasePredictor):
                     inchikey_lookup[inchikey].append(
                         (chebi_id, list(get_superclasses(self.chebi_graph, chebi_id)))
                     )
-                except Exception as e:
-                    print(
-                        f"Failed to parse SMILES {smiles} for ChEBI ID {chebi_id}: {e}"
-                    )
+                except Exception:
+                    failed += 1
+        if failed:
+            print(f"Skipped {failed} ChEBI entries whose SMILES could not be parsed.")
         return inchikey_lookup
 
     def predict(self, smiles: str | Chem.Mol) -> Optional[dict]:
@@ -86,7 +89,7 @@ class ChEBILookupPredictor(BasePredictor):
             preds_i = dict()
             if len(parent_candidates) > 1:
                 print(
-                    f"Multiple matches found in ChEBI for SMILES {smiles}: {', '.join(str(chebi_id) for chebi_id, _ in parent_candidates)}"
+                    f"Multiple matches found in ChEBI for SMILES {smiles if isinstance(smiles, str) else Chem.MolToSmiles(mol)}: {', '.join(str(chebi_id) for chebi_id, _ in parent_candidates)}"
                 )
                 for k in list(set(pp for _, p in parent_candidates for pp in p)):
                     preds_i[str(k)] = 1

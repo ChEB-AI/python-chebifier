@@ -77,6 +77,12 @@ def load_ensemble_config(ensemble_config=None):
     """
     if ensemble_config is None:
         ensemble_config = "web"
+    with open(resolve_ensemble_config_path(ensemble_config), "r") as f:
+        return yaml.safe_load(f)
+
+
+@functools.lru_cache(maxsize=None)
+def resolve_ensemble_config_path(ensemble_config):
     if ensemble_config in DEFAULT_CONFIGS:
         filename = DEFAULT_CONFIGS[ensemble_config]
         print(
@@ -92,8 +98,7 @@ def load_ensemble_config(ensemble_config=None):
     else:
         print(f"Loading ensemble configuration from {ensemble_config}")
         path = ensemble_config
-    with open(path, "r") as f:
-        return yaml.safe_load(f)
+    return path
 
 
 DEFAULT_ENSEMBLE_CALIBRATION = "wmv-f1-3star-symbolic"
